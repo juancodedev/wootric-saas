@@ -139,22 +139,37 @@ export class RegistrationService {
       },
     ]);
 
-    // 8. Login to get tokens
-    const { createClient } = await import("@supabase/supabase-js");
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    // 8. Generate JWT tokens directly (no anon key needed)
+    const [{ SessionService }, { SignJWT }] = await Promise.all([
+      import("./SessionService"),
+      import("jose"),
+    ]);
+
+    const sessions = new SessionService();
+    const jwtSecret = new TextEncoder().encode(
+      process.env.JWT_SECRET ?? "wootric-dev-secret-do-not-use-in-production",
     );
 
-    const { data: loginData, error: loginError } =
-      await supabase.auth.signInWithPassword({
-        email: input.email,
-        password: input.password,
-      });
+    const accessToken = await new SignJWT({
+      sub: authUser.user.id,
+      tenant_id: tenant.id,
+      email: input.email,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("24h")
+      .sign(jwtSecret);
 
-    if (loginError || !loginData.session) {
-      throw new Error(`Login after registration failed: ${loginError?.message}`);
-    }
+    const refreshToken = await new SignJWT({
+      sub: authUser.user.id,
+      type: "refresh",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("30d")
+      .sign(jwtSecret);
+
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     // Get permissions
     const { data: permissions } = await admin
@@ -163,19 +178,13 @@ export class RegistrationService {
       .eq("user_id", authUser.user.id);
 
     // Create session
-    const { SessionService } = await import("./SessionService");
-    const sessions = new SessionService();
-    const payload = JSON.parse(
-      Buffer.from(loginData.session.access_token.split(".")[1] ?? "", "base64").toString(),
-    );
-
     await sessions.create({
       userId: authUser.user.id,
       tenantId: tenant.id,
       email: input.email,
       roleIds: adminRole ? [adminRole.id] : [],
       permissions: (permissions ?? []).map((p) => p.permission_id),
-      expiresAt: new Date((payload.exp ?? 0) * 1000),
+      expiresAt,
       createdAt: new Date(),
     });
 
@@ -185,15 +194,15 @@ export class RegistrationService {
       email: input.email,
       roleIds: adminRole ? [adminRole.id] : [],
       permissions: (permissions ?? []).map((p) => p.permission_id),
-      expiresAt: new Date((payload.exp ?? 0) * 1000),
+      expiresAt,
     };
 
     return {
       tenantId: tenant.id,
       userId: authUser.user.id,
       session,
-      accessToken: loginData.session.access_token,
-      refreshToken: loginData.session.refresh_token,
+      accessToken,
+      refreshToken,
     };
   }
 }
