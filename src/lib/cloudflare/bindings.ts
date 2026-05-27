@@ -1,4 +1,5 @@
 import type { Queue } from "@cloudflare/workers-types";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export interface ExportJobMessage {
   exportId: string;
@@ -39,4 +40,22 @@ export interface CloudflareBindings {
   RATE_LIMIT_WINDOW_SECONDS: string;
   RATE_LIMIT_MAX_REQUESTS: string;
   STORAGE_BUCKET: string;
+}
+
+export type QueueBindingName = "exports" | "sync" | "billing";
+
+export const QUEUE_NAME_MAP: Record<string, keyof CloudflareBindings> = {
+  exports: "QUEUE_EXPORTS",
+  sync: "QUEUE_SYNC",
+  billing: "QUEUE_BILLING",
+};
+
+export async function getBindings(): Promise<CloudflareBindings> {
+  const ctx = await getCloudflareContext({ async: true });
+  return ctx.env as unknown as CloudflareBindings;
+}
+
+export function getBindingsSync(): CloudflareBindings {
+  const ctx = getCloudflareContext({ async: false });
+  return ctx.env as unknown as CloudflareBindings;
 }
