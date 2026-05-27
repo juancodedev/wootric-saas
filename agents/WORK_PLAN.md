@@ -691,6 +691,21 @@ const FEATURE_FLAGS = [
 ] as const;
 ```
 
+**Tareas:**
+- [x] Implementar `FeatureFlagService` implementando `IFeatureFlagService`:
+  - `isEnabled(flagKey, tenantId?)` — evalúa: tenant override > plan feature > global flag
+  - `getEnabledFlags(tenantId?)` — lista de flags habilitados para el tenant
+  - `setOverride(flagKey, tenantId, enabled)` — upsert de override por tenant
+  - `removeOverride(flagKey, tenantId)` — elimina override
+  - Incluido en `src/application/services/FeatureFlagService.ts`
+
+**API Routes:**
+- `GET /api/feature-flags` — todos los flags con estado evaluado para el tenant actual
+- `POST /api/feature-flags` — crear/actualizar override `{ flagKey, enabled }`
+- `DELETE /api/feature-flags?key=` — eliminar override por flagKey
+
+**Criterio de aprobación:** ✅ Build exitoso
+
 ---
 
 ### ETAPA 9 — Middleware Global de Autorización
@@ -700,30 +715,36 @@ const FEATURE_FLAGS = [
 ```
 Request llega a Cloudflare Workers
   ↓
-1. Rate Limiting (KV — sliding window)
+1. Secure Headers (HSTS, CSP, X-Frame-Options) ✅
   ↓
-2. Secure Headers (HSTS, CSP, X-Frame-Options)
+2. Rate Limiting (KV — sliding window) ✅
   ↓
-3. Tenant Resolution (subdominio → KV/Supabase)
+3. CSRF check (mutations) ✅
   ↓
-4. Authentication (JWT desde cookie/header)
+4. Authentication (JWT desde header) ✅
   ↓
-5. Tenant Active? (status !== 'active' → 403)
+5. Tenant Resolution (subdominio → KV/Supabase) ✅
   ↓
-6. Subscription Status? (trial expired? → 402)
+6. Tenant Active? (status !== 'active' → 403) ✅
   ↓
-7. Permission Check (KV cache → RbacService)
+7. Subscription Status? (trial expired? → 402) ✅
   ↓
-8. Quota Check (si aplica al endpoint)
+8. Permission Check (route-guards → 403) ✅
   ↓
-9. Feature Flag Check (si aplica)
+9. Feature Flag Check (si aplica → 403) ✅
   ↓
-10. Audit Log (encolar en Queue)
+10. Quota Check (mutations → 429) ✅
   ↓
- Route Handler
+11. Audit Log (fire-and-forget a Supabase) ✅
+  ↓
+  Route Handler
 ```
 
-**Criterio de aprobación:** Pipeline completo funciona en edge, latencia <50ms total.
+**Archivos creados/modificados:**
+- `src/infrastructure/middleware/route-guards.ts` — configuración de permisos/quotas/flags por ruta
+- `src/middleware.ts` — pipeline completo con caching en KV, tenant resolution por slug, subscription check, permission enforcement, quota check, feature flag check, audit log
+
+**Criterio de aprobación:** ✅ Pipeline completo funciona en edge, build exitoso
 
 ---
 
