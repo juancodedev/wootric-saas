@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createSupabaseClient } from "@/lib/supabase/client";
+import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { SessionService } from "@/infrastructure/auth/SessionService";
 import type { LoginRequestDto, AuthResponse } from "@/presentation/dtos/auth";
 
@@ -16,7 +16,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createSupabaseClient();
+    // Use admin client for sign-in (service_role key works as apikey on /token endpoint)
+    const supabase = createSupabaseAdmin();
     const { data: auth, error } = await supabase.auth.signInWithPassword({
       email: body.email,
       password: body.password,
@@ -30,7 +31,8 @@ export async function POST(request: NextRequest) {
     }
 
     const sessions = new SessionService();
-    const { createSupabaseAdmin } = await import("@/lib/supabase/admin");
+
+    // Use a FRESH admin client for data queries to avoid auth client session interference
     const admin = createSupabaseAdmin();
 
     const { data: user } = await admin

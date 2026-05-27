@@ -1,7 +1,6 @@
 import "reflect-metadata";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createSupabaseClient } from "@/lib/supabase/client";
 import { SessionService } from "@/infrastructure/auth/SessionService";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AuthResponse, RefreshRequest } from "@/presentation/dtos/auth";
@@ -17,8 +16,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createSupabaseClient();
-    const { data, error } = await supabase.auth.refreshSession({
+    const admin = createSupabaseAdmin();
+    const { data, error } = await admin.auth.refreshSession({
       refresh_token: body.refreshToken,
     });
 
@@ -29,7 +28,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const admin = createSupabaseAdmin();
     const { data: user } = await admin
       .from("users")
       .select("id, tenant_id, email, name")

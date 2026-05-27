@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { SessionService } from "@/infrastructure/auth/SessionService";
-import { createSupabaseClient } from "@/lib/supabase/client";
+import { createSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,8 +24,8 @@ export async function POST(request: NextRequest) {
     await sessions.removeAllForUser(userId);
 
     // Also invalidate Supabase session
-    const supabase = createSupabaseClient();
-    await supabase.auth.signOut();
+    const admin = createSupabaseAdmin();
+    await admin.auth.signOut();
 
     return NextResponse.json({ success: true });
   } catch {
