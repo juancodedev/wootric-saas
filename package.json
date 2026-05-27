@@ -1,26 +1,59 @@
 {
-  "name": "wootric-temp",
+  "name": "wootric-saas",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:cf": "opennextjs-cloudflare build",
     "start": "next start",
-    "lint": "eslint"
+    "dev:cf": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "types": "wrangler types",
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ],
+    "overrides": {
+      "balanced-match": "^4.0.4"
+    }
   },
   "dependencies": {
+    "@opennextjs/cloudflare": "^1.19.11",
+    "@supabase/supabase-js": "^2.106.2",
+    "balanced-match": "^4.0.4",
+    "drizzle-orm": "^0.45.2",
+    "exceljs": "^4.4.0",
     "next": "16.2.6",
+    "pino": "^10.3.1",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "reflect-metadata": "^0.2.2",
+    "tsyringe": "^4.10.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.10",
+    "@cloudflare/workers-types": "^4.20260527.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pino": "^7.0.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.7",
+    "wrangler": "^4.95.0"
   }
 }
