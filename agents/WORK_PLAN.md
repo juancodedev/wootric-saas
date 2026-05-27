@@ -752,7 +752,16 @@ Request llega a Cloudflare Workers
 
 *Sin cambios. RLS es crítico para multi-tenancy.*
 
-**Criterio de aprobación:** Query directa desde otro tenant retorna 0 filas.
+**Archivos creados:**
+- `supabase/migrations/001_rls_policies.sql` — RLS policies para todas las tablas:
+  - `get_current_tenant_id()` helper function (extrae tenant_id del JWT)
+  - `tenants` — SELECT own tenant only
+  - `users` — SELECT same tenant, UPDATE own record
+  - 11 tablas tenant-scoped con policies genéricas SELECT/INSERT/UPDATE/DELETE por tenant_id
+  - `dashboard_widgets` — policies vía subquery a `dashboards.tenant_id`
+  - `plans`, `feature_flags`, `plan_features`, `plan_permissions`, `plan_quotas`, `roles`, `permissions`, `role_permissions` — SELECT público, writes bloqueados
+
+**Criterio de aprobación:** Query directa desde otro tenant retorna 0 filas. ✅ Build exitoso
 
 ---
 
@@ -760,7 +769,29 @@ Request llega a Cloudflare Workers
 
 *Sin cambios.*
 
-**Criterio de aprobación:** CRUD completo de dashboards con control de acceso.
+**Tareas:**
+- [x] Implementar `DashboardService` en `src/application/services/DashboardService.ts`:
+  - `findById`, `findByTenant`, `create`, `update`, `softDelete`, `restore`, `hardDelete`, `countByTenant`
+  - Widget management: `findWidgets`, `createWidget`, `updateWidget`, `deleteWidget`, `reorderWidgets`
+  - Mapeo row→entity con `toEntity` y `widgetToEntity`
+- [x] DTOs en `src/presentation/dtos/dashboard.ts`
+
+**API Routes:**
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/dashboards` | Listar dashboards del tenant |
+| POST | `/api/dashboards` | Crear dashboard |
+| GET | `/api/dashboards/[id]` | Dashboard + widgets |
+| PATCH | `/api/dashboards/[id]` | Actualizar dashboard |
+| DELETE | `/api/dashboards/[id]` | Soft delete |
+| POST | `/api/dashboards/[id]/restore` | Restaurar deleted |
+| GET | `/api/dashboards/[id]/widgets` | Listar widgets |
+| POST | `/api/dashboards/[id]/widgets` | Crear widget |
+| PATCH | `/api/dashboards/[id]/widgets/[widgetId]` | Actualizar widget |
+| DELETE | `/api/dashboards/[id]/widgets/[widgetId]` | Eliminar widget |
+| POST | `/api/dashboards/[id]/widgets/reorder` | Reordenar widgets |
+
+**Criterio de aprobación:** CRUD completo de dashboards con control de acceso. ✅ Build exitoso
 
 ---
 
