@@ -753,13 +753,21 @@ Request llega a Cloudflare Workers
 *Sin cambios. RLS es crítico para multi-tenancy.*
 
 **Archivos creados:**
-- `supabase/migrations/001_rls_policies.sql` — RLS policies para todas las tablas:
-  - `get_current_tenant_id()` helper function (extrae tenant_id del JWT)
-  - `tenants` — SELECT own tenant only
-  - `users` — SELECT same tenant, UPDATE own record
-  - 11 tablas tenant-scoped con policies genéricas SELECT/INSERT/UPDATE/DELETE por tenant_id
-  - `dashboard_widgets` — policies vía subquery a `dashboards.tenant_id`
-  - `plans`, `feature_flags`, `plan_features`, `plan_permissions`, `plan_quotas`, `roles`, `permissions`, `role_permissions` — SELECT público, writes bloqueados
+- `supabase/migrations/001_rls_policies.sql` — RLS policies idempotentes para todas las tablas:
+  - Helper functions `get_current_tenant_id()`, con existencia condicional
+  - Policies genéricas para 11 tablas tenant-scoped
+  - Policies para dashboard_widgets (vía subquery)
+  - Tablas globales con SELECT público
+  - Se puede ejecutar en cualquier momento (antes o después de la migración DDL)
+- `drizzle.config.ts` — configuración de Drizzle Kit
+- `src/infrastructure/db/drizzle/migrations/0000_nasty_hardball.sql` — migración inicial generada (26 tablas)
+- Scripts npm añadidos: `db:generate`, `db:migrate`, `db:studio`
+
+**Setup rápido:**
+1. Copiar `.env.example` → `.env.local` y llenar credenciales de Supabase
+2. `npm run db:migrate` (crea las 26 tablas)
+3. Ejecutar `supabase/migrations/001_rls_policies.sql` contra Supabase (vía SQL editor o psql)
+4. `npm run dev` — app funcionando en `http://localhost:3000`
 
 **Criterio de aprobación:** Query directa desde otro tenant retorna 0 filas. ✅ Build exitoso
 

@@ -1,13 +1,11 @@
 -- RLS Policies for Wootric Multi-Tenant SaaS
--- Run this after the initial schema migration has been applied.
--- These policies assume tenant_id is present on all tenant-scoped tables.
+-- Safe to run at any time: checks table existence before applying policies.
+-- Run this after the initial Drizzle schema migration.
 
 -- ═════════════════════════════════════════════════════════════════════════════
 -- HELPER: Get current tenant_id from app-level JWT claim
 -- ═════════════════════════════════════════════════════════════════════════════
 
--- Create a function to extract the tenant_id from the JWT
--- This is set by Supabase Auth or can be passed via the custom access token hook
 CREATE OR REPLACE FUNCTION public.get_current_tenant_id()
 RETURNS uuid
 LANGUAGE plpgsql STABLE
@@ -23,246 +21,166 @@ END;
 $$;
 
 -- ═════════════════════════════════════════════════════════════════════════════
--- TENANTS table
+-- Helper: enable RLS on a table if it exists
 -- ═════════════════════════════════════════════════════════════════════════════
 
-ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
-
--- Users can view their own tenant only
-CREATE POLICY "tenants_select_own" ON tenants
-  FOR SELECT
-  USING (id = get_current_tenant_id());
-
--- Only super_admin via service role can manage tenants (no public RLS for writes)
-CREATE POLICY "tenants_no_insert" ON tenants
-  FOR INSERT
-  WITH CHECK (false);
-
-CREATE POLICY "tenants_no_update" ON tenants
-  FOR UPDATE
-  USING (false);
-
-CREATE POLICY "tenants_no_delete" ON tenants
-  FOR DELETE
-  USING (false);
-
--- ═════════════════════════════════════════════════════════════════════════════
--- USERS table
--- ═════════════════════════════════════════════════════════════════════════════
-
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-
--- Users can see other users in the same tenant
-CREATE POLICY "users_select_tenant" ON users
-  FOR SELECT
-  USING (tenant_id = get_current_tenant_id());
-
--- Users can update their own record
-CREATE POLICY "users_update_own" ON users
-  FOR UPDATE
-  USING (id = auth.uid())
-  WITH CHECK (id = auth.uid());
-
--- ═════════════════════════════════════════════════════════════════════════════
--- ALL TENANT-SCOPED TABLES
--- ═════════════════════════════════════════════════════════════════════════════
-
--- Helper macro: enable RLS + add tenant isolation policy for SELECT/INSERT/UPDATE/DELETE
--- Uses format for each table that has a tenant_id column.
-
-DO $$
-DECLARE
-  tables_with_tenant TEXT[] := ARRAY[
-    'subscriptions',
-    'usage_quotas',
-    'quota_usage_history',
-    'dashboards',
-    'dashboard_shares',
-    'reports',
-    'report_downloads',
-    'export_history',
-    'audit_logs',
-    'invitations',
-    'user_roles'
-  ];
-  t TEXT;
+CREATE OR REPLACE FUNCTION public._enable_rls_if_exists(tbl text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
 BEGIN
-  FOREACH t IN ARRAY tables_with_tenant
-  LOOP
-    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY;', t);
-
-    -- SELECT: same tenant only (non-deleted for soft-delete tables)
-    BEGIN
-      EXECUTE format($fmt$
-        CREATE POLICY %I ON %I
-          FOR SELECT
-          USING (tenant_id = get_current_tenant_id());
-      $fmt$, t || '_select_tenant', t);
-    EXCEPTION WHEN duplicate_object THEN NULL;
-    END;
-
-    -- INSERT: only into own tenant
-    BEGIN
-      EXECUTE format($fmt$
-        CREATE POLICY %I ON %I
-          FOR INSERT
-          WITH CHECK (tenant_id = get_current_tenant_id());
-      $fmt$, t || '_insert_tenant', t);
-    EXCEPTION WHEN duplicate_object THEN NULL;
-    END;
-
-    -- UPDATE: only own tenant rows
-    BEGIN
-      EXECUTE format($fmt$
-        CREATE POLICY %I ON %I
-          FOR UPDATE
-          USING (tenant_id = get_current_tenant_id())
-          WITH CHECK (tenant_id = get_current_tenant_id());
-      $fmt$, t || '_update_tenant', t);
-    EXCEPTION WHEN duplicate_object THEN NULL;
-    END;
-
-    -- DELETE: only own tenant rows
-    BEGIN
-      EXECUTE format($fmt$
-        CREATE POLICY %I ON %I
-          FOR DELETE
-          USING (tenant_id = get_current_tenant_id());
-      $fmt$, t || '_delete_tenant', t);
-    EXCEPTION WHEN duplicate_object THEN NULL;
-    END;
-  END LOOP;
+  IF EXISTS (
+    SELECT 1 FROM pg_tables WHERE tablename = split_part(tbl, '.', 2)
+      AND schemaname = split_part(tbl, '.', 1)
+  ) THEN
+    EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY;', tbl);
+  END IF;
 END;
 $$;
 
 -- ═════════════════════════════════════════════════════════════════════════════
+-- Policy helper: create a policy if the table exists and policy doesn't exist
+-- ═════════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public._create_policy_if_not_exists(
+  policy_name text,
+  table_name text,
+  policy_type text,       -- 'SELECT', 'INSERT', 'UPDATE', 'DELETE'
+  using_expr text,        -- USING expression (for SELECT/UPDATE/DELETE)
+  check_expr text DEFAULT NULL  -- WITH CHECK expression (for INSERT/UPDATE)
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_tables WHERE tablename = split_part(table_name, '.', 2)
+      AND schemaname = split_part(table_name, '.', 1)
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE policyname = policy_name
+      AND tablename = split_part(table_name, '.', 2)
+      AND schemaname = split_part(table_name, '.', 1)
+  ) THEN
+    IF policy_type IN ('SELECT', 'UPDATE', 'DELETE') THEN
+      EXECUTE format(
+        'CREATE POLICY %I ON %s FOR %s USING (%s);',
+        policy_name, table_name, policy_type, using_expr
+      );
+    ELSE
+      EXECUTE format(
+        'CREATE POLICY %I ON %s FOR %s WITH CHECK (%s);',
+        policy_name, table_name, policy_type,
+        COALESCE(check_expr, using_expr)
+      );
+    END IF;
+  END IF;
+END;
+$$;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- APPLY POLICIES
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- TENANTS
+SELECT public._enable_rls_if_exists('public.tenants');
+SELECT public._create_policy_if_not_exists('tenants_select_own', 'public.tenants', 'SELECT', 'id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('tenants_no_insert', 'public.tenants', 'INSERT', 'false');
+SELECT public._create_policy_if_not_exists('tenants_no_update', 'public.tenants', 'UPDATE', 'false');
+SELECT public._create_policy_if_not_exists('tenants_no_delete', 'public.tenants', 'DELETE', 'false');
+
+-- USERS
+SELECT public._enable_rls_if_exists('public.users');
+SELECT public._create_policy_if_not_exists('users_select_tenant', 'public.users', 'SELECT', 'tenant_id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('users_update_own', 'public.users', 'UPDATE', 'id = auth.uid()', 'id = auth.uid()');
+SELECT public._create_policy_if_not_exists('users_no_insert', 'public.users', 'INSERT', 'false');
+SELECT public._create_policy_if_not_exists('users_no_delete', 'public.users', 'DELETE', 'false');
+
+-- TENANT-SCOPED TABLES (subscriptions, usage_quotas, etc.)
+DO $$
+DECLARE
+  tables TEXT[] := ARRAY[
+    'subscriptions', 'usage_quotas', 'quota_usage_history',
+    'dashboards', 'dashboard_shares', 'reports', 'report_downloads',
+    'export_history', 'audit_logs', 'invitations', 'user_roles'
+  ];
+  t TEXT;
+BEGIN
+  FOREACH t IN ARRAY tables
+  LOOP
+    PERFORM public._enable_rls_if_exists('public.' || t);
+    PERFORM public._create_policy_if_not_exists(t || '_select_tenant', 'public.' || t, 'SELECT', 'tenant_id = get_current_tenant_id()');
+    PERFORM public._create_policy_if_not_exists(t || '_insert_tenant', 'public.' || t, 'INSERT', 'tenant_id = get_current_tenant_id()');
+    PERFORM public._create_policy_if_not_exists(t || '_update_tenant', 'public.' || t, 'UPDATE', 'tenant_id = get_current_tenant_id()', 'tenant_id = get_current_tenant_id()');
+    PERFORM public._create_policy_if_not_exists(t || '_delete_tenant', 'public.' || t, 'DELETE', 'tenant_id = get_current_tenant_id()');
+  END LOOP;
+END;
+$$;
+
 -- DASHBOARD WIDGETS (scoped via dashboard → tenant)
--- ═════════════════════════════════════════════════════════════════════════════
+SELECT public._enable_rls_if_exists('public.dashboard_widgets');
+SELECT public._create_policy_if_not_exists('dashboard_widgets_select_tenant', 'public.dashboard_widgets', 'SELECT',
+  'EXISTS (SELECT 1 FROM dashboards WHERE dashboards.id = dashboard_widgets.dashboard_id AND dashboards.tenant_id = get_current_tenant_id())');
+SELECT public._create_policy_if_not_exists('dashboard_widgets_insert_tenant', 'public.dashboard_widgets', 'INSERT',
+  'EXISTS (SELECT 1 FROM dashboards WHERE dashboards.id = dashboard_widgets.dashboard_id AND dashboards.tenant_id = get_current_tenant_id())');
+SELECT public._create_policy_if_not_exists('dashboard_widgets_update_tenant', 'public.dashboard_widgets', 'UPDATE',
+  'EXISTS (SELECT 1 FROM dashboards WHERE dashboards.id = dashboard_widgets.dashboard_id AND dashboards.tenant_id = get_current_tenant_id())');
+SELECT public._create_policy_if_not_exists('dashboard_widgets_delete_tenant', 'public.dashboard_widgets', 'DELETE',
+  'EXISTS (SELECT 1 FROM dashboards WHERE dashboards.id = dashboard_widgets.dashboard_id AND dashboards.tenant_id = get_current_tenant_id())');
 
-ALTER TABLE dashboard_widgets ENABLE ROW LEVEL SECURITY;
+-- FEATURE FLAG OVERRIDES
+SELECT public._enable_rls_if_exists('public.feature_flag_overrides');
+SELECT public._create_policy_if_not_exists('ff_overrides_select_tenant', 'public.feature_flag_overrides', 'SELECT', 'tenant_id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('ff_overrides_insert_tenant', 'public.feature_flag_overrides', 'INSERT', 'tenant_id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('ff_overrides_update_tenant', 'public.feature_flag_overrides', 'UPDATE', 'tenant_id = get_current_tenant_id()', 'tenant_id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('ff_overrides_delete_tenant', 'public.feature_flag_overrides', 'DELETE', 'tenant_id = get_current_tenant_id()');
 
-CREATE POLICY "dashboard_widgets_select_tenant" ON dashboard_widgets
-  FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM dashboards
-      WHERE dashboards.id = dashboard_widgets.dashboard_id
-        AND dashboards.tenant_id = get_current_tenant_id()
-    )
-  );
+-- GLOBAL TABLES (SELECT for all, no writes from client)
+DO $$
+DECLARE
+  tables TEXT[] := ARRAY[
+    'plans', 'feature_flags', 'plan_features', 'plan_permissions', 'plan_quotas',
+    'roles', 'permissions', 'role_permissions', 'tenant_config'
+  ];
+  t TEXT;
+BEGIN
+  FOREACH t IN ARRAY tables
+  LOOP
+    PERFORM public._enable_rls_if_exists('public.' || t);
+    PERFORM public._create_policy_if_not_exists(t || '_select_all', 'public.' || t, 'SELECT', 'true');
+    PERFORM public._create_policy_if_not_exists(t || '_no_insert', 'public.' || t, 'INSERT', 'false');
+    PERFORM public._create_policy_if_not_exists(t || '_no_update', 'public.' || t, 'UPDATE', 'false');
+    PERFORM public._create_policy_if_not_exists(t || '_no_delete', 'public.' || t, 'DELETE', 'false');
+  END LOOP;
+END;
+$$;
 
-CREATE POLICY "dashboard_widgets_insert_tenant" ON dashboard_widgets
-  FOR INSERT
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM dashboards
-      WHERE dashboards.id = dashboard_widgets.dashboard_id
-        AND dashboards.tenant_id = get_current_tenant_id()
-    )
-  );
+-- SUBSCRIPTION EVENTS
+SELECT public._enable_rls_if_exists('public.subscription_events');
+SELECT public._create_policy_if_not_exists('subscription_events_select_tenant', 'public.subscription_events', 'SELECT', 'tenant_id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('subscription_events_no_insert', 'public.subscription_events', 'INSERT', 'false');
 
-CREATE POLICY "dashboard_widgets_update_tenant" ON dashboard_widgets
-  FOR UPDATE
-  USING (
-    EXISTS (
-      SELECT 1 FROM dashboards
-      WHERE dashboards.id = dashboard_widgets.dashboard_id
-        AND dashboards.tenant_id = get_current_tenant_id()
-    )
-  );
+-- REPORT SCHEDULES
+SELECT public._enable_rls_if_exists('public.report_schedules');
+SELECT public._create_policy_if_not_exists('report_schedules_select_tenant', 'public.report_schedules', 'SELECT', 'tenant_id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('report_schedules_insert_tenant', 'public.report_schedules', 'INSERT', 'tenant_id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('report_schedules_update_tenant', 'public.report_schedules', 'UPDATE', 'tenant_id = get_current_tenant_id()', 'tenant_id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('report_schedules_delete_tenant', 'public.report_schedules', 'DELETE', 'tenant_id = get_current_tenant_id()');
 
-CREATE POLICY "dashboard_widgets_delete_tenant" ON dashboard_widgets
-  FOR DELETE
-  USING (
-    EXISTS (
-      SELECT 1 FROM dashboards
-      WHERE dashboards.id = dashboard_widgets.dashboard_id
-        AND dashboards.tenant_id = get_current_tenant_id()
-    )
-  );
+-- SUBSCRIPTIONS — allow insert from service role only (no client inserts)
+SELECT public._create_policy_if_not_exists('subscriptions_no_insert', 'public.subscriptions', 'INSERT', 'false');
+SELECT public._create_policy_if_not_exists('subscriptions_no_delete', 'public.subscriptions', 'DELETE', 'false');
 
--- ═════════════════════════════════════════════════════════════════════════════
--- PLANS (global, no tenant_id — all users can read)
--- ═════════════════════════════════════════════════════════════════════════════
+-- DASHBOARDS — creator can update/delete
+SELECT public._create_policy_if_not_exists('dashboards_update_owner', 'public.dashboards', 'UPDATE',
+  'tenant_id = get_current_tenant_id()', 'tenant_id = get_current_tenant_id()');
+SELECT public._create_policy_if_not_exists('dashboards_delete_owner', 'public.dashboards', 'DELETE',
+  'tenant_id = get_current_tenant_id()');
 
-ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
+-- USER PERMISSIONS (read-only from client, managed server-side)
+SELECT public._enable_rls_if_exists('public.user_permissions');
+SELECT public._create_policy_if_not_exists('user_permissions_select_own', 'public.user_permissions', 'SELECT', 'user_id = auth.uid()');
+SELECT public._create_policy_if_not_exists('user_permissions_no_write', 'public.user_permissions', 'INSERT', 'false');
 
-CREATE POLICY "plans_select_all" ON plans
-  FOR SELECT
-  USING (true);
-
-CREATE POLICY "plans_no_write" ON plans
-  FOR INSERT
-  WITH CHECK (false);
-
-CREATE POLICY "plans_no_update" ON plans
-  FOR UPDATE
-  USING (false);
-
--- ═════════════════════════════════════════════════════════════════════════════
--- FEATURE FLAGS (global, no tenant_id — all authenticated users can read)
--- ═════════════════════════════════════════════════════════════════════════════
-
-ALTER TABLE feature_flags ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "feature_flags_select_all" ON feature_flags
-  FOR SELECT
-  USING (true);
-
-CREATE POLICY "feature_flags_no_write" ON feature_flags
-  FOR INSERT
-  WITH CHECK (false);
-
--- ═════════════════════════════════════════════════════════════════════════════
--- FEATURE FLAG OVERRIDES (scoped by tenant_id)
--- ═════════════════════════════════════════════════════════════════════════════
-
-ALTER TABLE feature_flag_overrides ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "ff_overrides_select_tenant" ON feature_flag_overrides
-  FOR SELECT
-  USING (tenant_id = get_current_tenant_id());
-
-CREATE POLICY "ff_overrides_insert_tenant" ON feature_flag_overrides
-  FOR INSERT
-  WITH CHECK (tenant_id = get_current_tenant_id());
-
-CREATE POLICY "ff_overrides_update_tenant" ON feature_flag_overrides
-  FOR UPDATE
-  USING (tenant_id = get_current_tenant_id());
-
-CREATE POLICY "ff_overrides_delete_tenant" ON feature_flag_overrides
-  FOR DELETE
-  USING (tenant_id = get_current_tenant_id());
-
--- ═════════════════════════════════════════════════════════════════════════════
--- PLAN FEATURES / PLAN PERMISSIONS / PLAN QUOTAS (global, no tenant_id)
--- ═════════════════════════════════════════════════════════════════════════════
-
-ALTER TABLE plan_features ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "plan_features_select" ON plan_features FOR SELECT USING (true);
-CREATE POLICY "plan_features_no_write" ON plan_features FOR INSERT WITH CHECK (false);
-
-ALTER TABLE plan_permissions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "plan_permissions_select" ON plan_permissions FOR SELECT USING (true);
-CREATE POLICY "plan_permissions_no_write" ON plan_permissions FOR INSERT WITH CHECK (false);
-
-ALTER TABLE plan_quotas ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "plan_quotas_select" ON plan_quotas FOR SELECT USING (true);
-CREATE POLICY "plan_quotas_no_write" ON plan_quotas FOR INSERT WITH CHECK (false);
-
--- ═════════════════════════════════════════════════════════════════════════════
--- ROLES & PERMISSIONS (global, no tenant_id)
--- ═════════════════════════════════════════════════════════════════════════════
-
-ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "roles_select" ON roles FOR SELECT USING (true);
-CREATE POLICY "roles_no_write" ON roles FOR INSERT WITH CHECK (false);
-
-ALTER TABLE permissions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "permissions_select" ON permissions FOR SELECT USING (true);
-CREATE POLICY "permissions_no_write" ON permissions FOR INSERT WITH CHECK (false);
-
-ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "role_permissions_select" ON role_permissions FOR SELECT USING (true);
-CREATE POLICY "role_permissions_no_write" ON role_permissions FOR INSERT WITH CHECK (false);
+-- Cleanup helper functions (no longer needed after policies are created)
+DROP FUNCTION IF EXISTS public._enable_rls_if_exists(text);
+DROP FUNCTION IF EXISTS public._create_policy_if_not_exists(text, text, text, text, text);
