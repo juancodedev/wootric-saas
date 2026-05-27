@@ -16,8 +16,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const admin = createSupabaseAdmin();
-    const { data, error } = await admin.auth.refreshSession({
+    const supabase = createSupabaseAdmin();
+    const { data, error } = await supabase.auth.refreshSession({
       refresh_token: body.refreshToken,
     });
 
@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Fresh admin client for data queries to avoid auth client session interference
+    const admin = createSupabaseAdmin();
     const { data: user } = await admin
       .from("users")
       .select("id, tenant_id, email, name")
