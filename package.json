@@ -26,10 +26,7 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "workerd"
-    ],
-    "overrides": {
-      "balanced-match": "^4.0.4"
-    }
+    ]
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.19.11",
