@@ -2,20 +2,11 @@
 
 import { useState, useCallback } from "react";
 import { apiFetch } from "@/lib/auth-client";
+import { ExportModal } from "@/components/wootric/export-modal";
+import { DashboardCharts } from "@/components/wootric/dashboard-charts";
+import type { WootricResponseItem } from "@/application/services/WootricService";
 
-type WootricResponse = {
-  id: number;
-  survey_id: number;
-  email?: string;
-  score?: number;
-  comment?: string;
-  origin_url?: string;
-  created_at: string;
-  updated_at?: string;
-  segment?: string;
-  ip_address?: string;
-  properties?: Record<string, string>;
-};
+type WootricResponse = WootricResponseItem;
 
 type FetchMeta = {
   totalCount: number;
@@ -58,6 +49,10 @@ export default function DataExplorerPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notConfigured, setNotConfigured] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [tab, setTab] = useState<"data" | "analytics">("data");
+  const [allResponses, setAllResponses] = useState<WootricResponse[]>([]);
+  const [loadingAll, setLoadingAll] = useState(false);
 
   const fetchData = useCallback(async (pageNum: number) => {
     setLoading(true);
@@ -81,21 +76,57 @@ export default function DataExplorerPage() {
       setPage(pageNum);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch";
-      if (msg.includes("not configured")) {
-        setNotConfigured(true);
-      }
+      if (msg.includes("not configured")) setNotConfigured(true);
       setError(msg);
     } finally {
       setLoading(false);
     }
   }, [startDate, endDate, perPage]);
 
+  const fetchAllForAnalytics = useCallback(async () => {
+    setLoadingAll(true);
+    setError("");
+    setNotConfigured(false);
+    try {
+      const all: WootricResponse[] = [];
+      let currentPage = 1;
+      let hasMore = true;
+
+      while (hasMore) {
+        const result = await apiFetch<{
+          data: WootricResponse[];
+          meta: FetchMeta;
+        }>("/api/wootric/fetch", {
+          method: "POST",
+          body: JSON.stringify({
+            startDate: startDate ? new Date(startDate).toISOString() : undefined,
+            endDate: endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined,
+            page: currentPage,
+            perPage: 50,
+          }),
+        });
+
+        all.push(...result.data);
+        hasMore = result.meta.nextPage != null && currentPage < 30;
+        currentPage++;
+      }
+
+      setAllResponses(all);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch";
+      if (msg.includes("not configured")) setNotConfigured(true);
+      setError(msg);
+    } finally {
+      setLoadingAll(false);
+    }
+  }, [startDate, endDate]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
       <div>
         <h1 className="text-xl font-semibold text-zinc-900">Data Explorer</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Consulta respuestas de encuestas de Wootric.
+          Consulta y visualiza respuestas de encuestas de Wootric.
         </p>
       </div>
 
@@ -149,97 +180,179 @@ export default function DataExplorerPage() {
         >
           {loading ? "Fetching..." : "Fetch Data"}
         </button>
+
+        {meta && tab === "data" && (
+          <button
+            onClick={() => setShowExport(true)}
+            className="rounded-lg border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+          >
+            Export
+          </button>
+        )}
       </div>
 
       {error && !notConfigured && (
         <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
       )}
 
-      {meta && (
-        <div className="flex items-center justify-between text-sm text-zinc-700">
-          <span>
-            {meta.totalCount} responses — Page {meta.page} of {meta.totalPages}
-          </span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => fetchData(page - 1)}
-              disabled={page <= 1 || loading}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <button
-              onClick={() => fetchData(page + 1)}
-              disabled={page >= meta.totalPages || loading}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-lg border bg-zinc-100 p-1">
+        <button
+          onClick={() => setTab("data")}
+          className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "data" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+          }`}
+        >
+          📋 Data
+        </button>
+        <button
+          onClick={() => {
+            setTab("analytics");
+            if (allResponses.length === 0 && !loadingAll) {
+              fetchAllForAnalytics();
+            }
+          }}
+          className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "analytics" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+          }`}
+        >
+          📊 Analytics
+        </button>
+      </div>
+
+      {/* Data Tab */}
+      {tab === "data" && (
+        <>
+          {meta && (
+            <div className="flex items-center justify-between text-sm text-zinc-700">
+              <span>
+                {meta.totalCount} responses — Page {meta.page} of {meta.totalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => fetchData(page - 1)}
+                  disabled={page <= 1 || loading}
+                  className="rounded-lg border px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => fetchData(page + 1)}
+                  disabled={page >= meta.totalPages || loading}
+                  className="rounded-lg border px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+
+          {data.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border bg-white">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b bg-zinc-50 text-xs font-medium uppercase text-zinc-600">
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Score</th>
+                    <th className="px-4 py-3">Comment</th>
+                    <th className="px-4 py-3">Email</th>
+                    <th className="px-4 py-3">Survey</th>
+                    <th className="px-4 py-3">Origin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.map((r) => (
+                    <tr key={r.id} className="border-b last:border-0 hover:bg-zinc-50">
+                      <td className="whitespace-nowrap px-4 py-3 text-zinc-800">
+                        {formatDate(r.created_at)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {r.score !== undefined ? (
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getScoreColor(r.score)}`}>
+                            {r.score}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-400">&mdash;</span>
+                        )}
+                      </td>
+                      <td className="max-w-xs truncate px-4 py-3 text-zinc-900">
+                        {r.text || <span className="text-zinc-400">&mdash;</span>}
+                      </td>
+                      <td className="px-4 py-3 text-zinc-800">
+                        {r.email || <span className="text-zinc-400">&mdash;</span>}
+                      </td>
+                      <td className="px-4 py-3 text-zinc-800">
+                        #{r.survey_id}
+                      </td>
+                      <td className="max-w-[120px] truncate px-4 py-3 text-zinc-700">
+                        {r.origin_url ? (
+                          <a href={r.origin_url} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 hover:underline">
+                            {new URL(r.origin_url).hostname}
+                          </a>
+                        ) : (
+                          <span className="text-zinc-400">&mdash;</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!loading && data.length === 0 && !error && (
+            <div className="rounded-lg border-2 border-dashed border-zinc-200 p-12 text-center text-zinc-500">
+              No data yet. Select a date range and click &quot;Fetch Data&quot;.
+            </div>
+          )}
+        </>
       )}
 
-      {data.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border bg-white">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b bg-zinc-50 text-xs font-medium uppercase text-zinc-500">
-                <th className="px-4 py-3 text-zinc-600">Date</th>
-                <th className="px-4 py-3 text-zinc-600">Score</th>
-                <th className="px-4 py-3 text-zinc-600">Comment</th>
-                <th className="px-4 py-3 text-zinc-600">Email</th>
-                <th className="px-4 py-3 text-zinc-600">Survey</th>
-                <th className="px-4 py-3 text-zinc-600">Segment</th>
-                <th className="px-4 py-3 text-zinc-600">Origin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((r) => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-zinc-50">
-                  <td className="whitespace-nowrap px-4 py-3 text-zinc-800">
-                    {formatDate(r.created_at)}
-                  </td>
-                  <td className="px-4 py-3">
-                    {r.score !== undefined ? (
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getScoreColor(r.score)}`}>
-                        {r.score}
-                      </span>
-                    ) : (
-                      <span className="text-zinc-400">&mdash;</span>
-                    )}
-                  </td>
-                  <td className="max-w-xs truncate px-4 py-3 text-zinc-900">
-                    {r.comment || <span className="text-zinc-400">&mdash;</span>}
-                  </td>
-                  <td className="px-4 py-3 text-zinc-800">
-                    {r.email || <span className="text-zinc-400">&mdash;</span>}
-                  </td>
-                  <td className="px-4 py-3 text-zinc-800">
-                    #{r.survey_id}
-                  </td>
-                  <td className="px-4 py-3 text-zinc-800">
-                    {r.segment || <span className="text-zinc-400">&mdash;</span>}
-                  </td>
-                  <td className="max-w-[120px] truncate px-4 py-3 text-zinc-700">
-                    {r.origin_url ? (
-                      <a href={r.origin_url} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 hover:underline">
-                        {new URL(r.origin_url).hostname}
-                      </a>
-                    ) : (
-                      <span className="text-zinc-400">&mdash;</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Analytics Tab */}
+      {tab === "analytics" && (
+        <>
+          {loadingAll && (
+            <div className="flex items-center justify-center py-12">
+              <div className="flex flex-col items-center gap-3">
+                <div className="size-8 animate-spin rounded-full border-4 border-zinc-200 border-t-blue-600" />
+                <p className="text-sm text-zinc-500">Fetching all responses for analytics...</p>
+              </div>
+            </div>
+          )}
+
+          {!loadingAll && allResponses.length > 0 && (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-zinc-500">
+                Analyzing {allResponses.length} responses from{" "}
+                {startDate} to {endDate}
+              </p>
+              <button
+                onClick={fetchAllForAnalytics}
+                className="rounded-lg border px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50"
+              >
+                Refresh
+              </button>
+            </div>
+          )}
+
+          {!loadingAll && allResponses.length > 0 && (
+            <DashboardCharts responses={allResponses} />
+          )}
+
+          {!loadingAll && allResponses.length === 0 && !error && (
+            <div className="rounded-lg border-2 border-dashed border-zinc-200 p-12 text-center text-zinc-500">
+              Click the Analytics tab to automatically fetch and visualize response data.
+            </div>
+          )}
+        </>
       )}
 
-      {!loading && data.length === 0 && !error && (
-        <div className="rounded-lg border-2 border-dashed border-zinc-200 p-12 text-center text-zinc-400">
-          No data yet. Select a date range and click "Fetch Data".
-        </div>
+      {showExport && (
+        <ExportModal
+          startDate={startDate}
+          endDate={endDate}
+          onClose={() => setShowExport(false)}
+        />
       )}
     </div>
   );

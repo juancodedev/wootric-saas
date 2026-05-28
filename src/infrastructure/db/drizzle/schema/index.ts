@@ -455,6 +455,37 @@ export const reportSchedules = pgTable(
 );
 
 // ═════════════════════════════════════════════════════════════════════════════
+// WOOTRIC
+// ═════════════════════════════════════════════════════════════════════════════
+
+export const wootricResponses = pgTable(
+  "wootric_responses",
+  {
+    ...baseColumns,
+    tenantId: tenantRef(),
+    wootricId: integer("wootric_id").notNull(),
+    surveyId: integer("survey_id").notNull(),
+    endUserId: integer("end_user_id"),
+    email: varchar("email", { length: 255 }),
+    score: integer("score"),
+    text: text("text"),
+    originUrl: text("origin_url"),
+    ipAddress: varchar("ip_address", { length: 45 }),
+    wootricCreatedAt: timestamp("wootric_created_at", { withTimezone: true }).notNull(),
+    wootricUpdatedAt: timestamp("wootric_updated_at", { withTimezone: true }),
+    tags: jsonb("tags").$type<string[]>().default([]),
+    endUserProperties: jsonb("end_user_properties").$type<Record<string, string>>(),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("wootric_responses_tenant_wootric_idx").on(t.tenantId, t.wootricId),
+    index("wootric_responses_tenant_idx").on(t.tenantId),
+    index("wootric_responses_created_idx").on(t.wootricCreatedAt),
+    index("wootric_responses_survey_idx").on(t.surveyId),
+  ],
+);
+
+// ═════════════════════════════════════════════════════════════════════════════
 // AUDIT & EXPORT TRACKING
 // ═════════════════════════════════════════════════════════════════════════════
 

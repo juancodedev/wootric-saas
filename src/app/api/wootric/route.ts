@@ -29,8 +29,9 @@ export async function GET(request: NextRequest) {
       config: wootric
         ? {
             apiUrl: (wootric as Record<string, string>).api_url ?? "",
-            username: (wootric as Record<string, string>).username ?? "",
+            email: (wootric as Record<string, string>).email ?? "",
             hasPassword: !!((wootric as Record<string, string>).password),
+            tokenExpiresAt: (wootric as Record<string, number>).expires_at ?? null,
           }
         : null,
     });

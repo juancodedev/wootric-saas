@@ -9,6 +9,18 @@ function getTenantId(request: NextRequest): string | null {
   return request.headers.get("x-tenant-id") ?? getAuthContextFromToken(request).tenantId;
 }
 
+async function getWootricConfig(tenantId: string): Promise<Record<string, unknown> | null> {
+  const admin = createSupabaseAdmin();
+  const { data: configRow } = await admin
+    .from("tenant_config")
+    .select("settings")
+    .eq("tenant_id", tenantId)
+    .single();
+
+  const wootric = (configRow?.settings as Record<string, unknown>)?.wootric as Record<string, unknown> | undefined;
+  return wootric ?? null;
+}
+
 function escapeCsv(val: string | number | null | undefined): string {
   if (val == null) return "";
   const str = String(val);
@@ -31,29 +43,23 @@ export async function POST(request: NextRequest) {
       format?: string;
     };
 
-    const format = body.format === "excel" ? "excel" : "csv";
-
-    const admin = createSupabaseAdmin();
-    const { data: configRow } = await admin
-      .from("tenant_config")
-      .select("settings")
-      .eq("tenant_id", tenantId)
-      .single();
-
-    const wootric = (configRow?.settings as Record<string, unknown>)?.wootric as
-      Record<string, string> | undefined;
-
-    if (!wootric?.api_url || !wootric?.username || !wootric?.password) {
+    const wootric = await getWootricConfig(tenantId);
+    if (!wootric?.api_url || !wootric?.email || !wootric?.password) {
       return NextResponse.json(
         { error: "Wootric not configured" },
         { status: 400 },
       );
     }
 
+    const format = body.format === "excel" ? "excel" : "csv";
+
     const client = new WootricService({
-      apiUrl: wootric.api_url,
-      username: wootric.username,
-      password: wootric.password,
+      apiUrl: wootric.api_url as string,
+      email: wootric.email as string,
+      password: wootric.password as string,
+      accessToken: (wootric.access_token as string) ?? undefined,
+      refreshToken: (wootric.refresh_token as string) ?? undefined,
+      expiresAt: (wootric.expires_at as number) ?? undefined,
     });
 
     const controller = new AbortController();

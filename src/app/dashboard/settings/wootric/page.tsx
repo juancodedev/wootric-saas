@@ -11,19 +11,30 @@ type TestResult = {
 
 type WootricConfig = {
   apiUrl: string;
-  username: string;
+  email: string;
   hasPassword: boolean;
+  tokenExpiresAt: number | null;
+};
+
+type TestResponse = {
+  ok: boolean;
+  message: string;
+  totalResponses?: number;
+  expiresIn?: number;
+  accessToken?: string | null;
+  refreshToken?: string | null;
 };
 
 export default function WootricSettingsPage() {
   const [apiUrl, setApiUrl] = useState("https://api.wootric.com");
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [testResult, setTestResult] = useState<TestResult>({ status: "idle", message: "" });
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<WootricConfig | null>(null);
+  const [testData, setTestData] = useState<TestResponse | null>(null);
 
   useEffect(() => {
     apiFetch<{ configured: boolean; config: WootricConfig | null }>("/api/wootric")
@@ -31,7 +42,7 @@ export default function WootricSettingsPage() {
         setConfig(data.config);
         if (data.config) {
           setApiUrl(data.config.apiUrl);
-          setUsername(data.config.username);
+          setEmail(data.config.email);
           if (data.config.hasPassword) {
             setPassword("__saved__");
           }
@@ -42,14 +53,20 @@ export default function WootricSettingsPage() {
   }, []);
 
   async function handleTest() {
-    setTestResult({ status: "testing", message: "Testing connection..." });
+    setTestResult({ status: "testing", message: "Authenticating with Wootric OAuth..." });
+    setTestData(null);
     try {
       const res = await fetch("/api/wootric/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiUrl, username, password: password === "__saved__" ? "" : password }),
+        body: JSON.stringify({
+          apiUrl,
+          email,
+          password: password === "__saved__" ? "" : password,
+        }),
       });
-      const data = (await res.json()) as { ok: boolean; message: string };
+      const data = (await res.json()) as TestResponse;
+      setTestData(data);
       setTestResult({
         status: data.ok ? "ok" : "error",
         message: data.message,
@@ -63,9 +80,18 @@ export default function WootricSettingsPage() {
     setSaving(true);
     setSaved(false);
     try {
-      const wootric: Record<string, string> = { api_url: apiUrl, username };
+      const wootric: Record<string, unknown> = {
+        api_url: apiUrl,
+        email,
+      };
       if (password !== "__saved__") {
         wootric.password = password;
+      }
+
+      if (testData?.ok && testData.accessToken) {
+        wootric.access_token = testData.accessToken;
+        wootric.refresh_token = testData.refreshToken;
+        wootric.expires_at = Math.floor(Date.now() / 1000) + (testData.expiresIn ?? 7200);
       }
 
       await apiFetch("/api/tenants/config", {
@@ -73,7 +99,12 @@ export default function WootricSettingsPage() {
         body: JSON.stringify({ settings: { wootric } }),
       });
       setSaved(true);
-      setConfig({ apiUrl, username, hasPassword: true });
+      setConfig({
+        apiUrl,
+        email,
+        hasPassword: true,
+        tokenExpiresAt: (wootric.expires_at as number) ?? null,
+      });
       setPassword("__saved__");
     } catch {
       setSaved(false);
@@ -96,13 +127,18 @@ export default function WootricSettingsPage() {
       <div>
         <h1 className="text-xl font-semibold text-zinc-900">Integración Wootric</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Configura las credenciales de la API de Wootric para sincronizar respuestas de encuestas.
+          Configura las credenciales de la API de Wootric para acceder a respuestas de encuestas vía OAuth 2.0.
         </p>
       </div>
 
       {config && (
         <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          Wootric ya está configurado. Podés actualizar las credenciales abajo.
+          Wootric ya está configurado{config.email ? ` como ${config.email}` : ""}.
+          {config.tokenExpiresAt && (
+            <span className="ml-1">
+              Token expira {new Date(config.tokenExpiresAt * 1000).toLocaleString()}.
+            </span>
+          )}
         </div>
       )}
 
@@ -116,15 +152,16 @@ export default function WootricSettingsPage() {
             placeholder="https://api.wootric.com"
             className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-black focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
+          <p className="mt-1 text-xs text-zinc-400">Base URL de la API de Wootric (e.g., https://api.wootric.com)</p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-zinc-700">Username</label>
+          <label className="block text-sm font-medium text-zinc-700">Email</label>
           <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="tu-usuario"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tu-email@ejemplo.com"
             className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-black focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
@@ -146,7 +183,7 @@ export default function WootricSettingsPage() {
         <div className="flex items-center gap-4 pt-2">
           <button
             onClick={handleSave}
-            disabled={saving || !apiUrl || !username}
+            disabled={saving || !apiUrl || !email}
             className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save"}
