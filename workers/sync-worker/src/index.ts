@@ -154,11 +154,93 @@ export default {
     }
   },
 
-  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+  // ── Cron handlers ──
+
+  async checkTrialExpirations(env: Env): Promise<void> {
+    const supabase = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+    log("info", "Checking trial expirations");
+
     try {
-      await handleScheduledSync(env);
+      const expired = await supabase.findExpiredTrials();
+      if (expired.length === 0) {
+        log("info", "No expired trials found");
+        return;
+      }
+
+      const ids = expired.map((s) => s.id);
+      await supabase.expireSubscriptions(ids);
+
+      for (const sub of expired) {
+        log("info", `Expired trial for tenant ${sub.tenant_id}`);
+      }
+
+      log("info", `Expired ${expired.length} trials`);
     } catch (error) {
-      log("error", `Scheduled sync failed: ${error}`);
+      log("error", `Trial expiration check failed: ${error}`);
+    }
+  },
+
+  async resetQuotas(env: Env): Promise<void> {
+    const supabase = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+    log("info", "Resetting expired quotas");
+
+    try {
+      const expired = await supabase.findExpiredQuotas();
+      if (expired.length === 0) {
+        log("info", "No expired quotas to reset");
+        return;
+      }
+
+      const ids = expired.map((q) => q.id);
+      await supabase.resetQuotas(ids);
+
+      log("info", `Reset ${expired.length} quotas across ${new Set(expired.map((q) => q.tenant_id)).size} tenants`);
+    } catch (error) {
+      log("error", `Quota reset failed: ${error}`);
+    }
+  },
+
+  async cleanupAuditLogs(env: Env): Promise<void> {
+    const supabase = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+    log("info", "Cleaning up old audit logs");
+
+    try {
+      const retentionDays = 90;
+      const deleted = await supabase.deleteOldAuditLogs(retentionDays);
+      log("info", `Deleted ${deleted} audit log entries older than ${retentionDays} days`);
+    } catch (error) {
+      log("error", `Audit log cleanup failed: ${error}`);
+    }
+  },
+
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    const cron = controller.cron;
+
+    log("info", `Scheduled trigger fired: ${cron}`);
+
+    try {
+      switch (cron) {
+        case "*/30 * * * *":
+          await handleScheduledSync(env);
+          break;
+
+        case "0 0 * * *":
+          await this.checkTrialExpirations(env);
+          break;
+
+        case "0 1 * * *":
+          await this.resetQuotas(env);
+          break;
+
+        case "0 3 * * 0":
+          await this.cleanupAuditLogs(env);
+          break;
+
+        default:
+          log("warn", `Unknown cron schedule: ${cron}`);
+      }
+    } catch (error) {
+      log("error", `Scheduled task failed for cron ${cron}: ${error}`);
     }
   },
 };

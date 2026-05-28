@@ -34,13 +34,7 @@
       { "binding": "QUEUE_BILLING", "queue": "wootric-billing" }
     ]
   },
-  "triggers": {
-    "crons": [
-      "0 0 * * *",     // Daily: trial expiration check
-      "0 1 * * *",     // Daily: quota reset
-      "0 3 * * 0"      // Weekly: audit log cleanup
-    ]
-  },
+
   "services": [
     {
       "binding": "EXPORT_WORKER",

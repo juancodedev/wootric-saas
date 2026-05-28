@@ -106,5 +106,94 @@ export function createSupabaseClient(url: string, key: string) {
         throw new Error(`Failed to insert into ${table}: ${res.status} ${body}`);
       }
     },
+
+    // ── Cron helpers ──
+
+    async findExpiredTrials(): Promise<Array<{ id: string; tenant_id: string }>> {
+      const now = new Date().toISOString();
+      const res = await fetch(
+        `${url}/rest/v1/subscriptions?select=id,tenant_id&status=eq.trial&trial_end_at=lt.${now}`,
+        {
+          headers: { Authorization: authHeader, apikey: apikeyHeader },
+        },
+      );
+      if (!res.ok) return [];
+      return res.json();
+    },
+
+    async expireSubscriptions(subIds: string[]): Promise<void> {
+      if (subIds.length === 0) return;
+      const idFilters = subIds.map((id) => `id=eq.${id}`).join(",");
+      const res = await fetch(`${url}/rest/v1/subscriptions?${idFilters}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: authHeader,
+          apikey: apikeyHeader,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({ status: "expired", updated_at: new Date().toISOString() }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Failed to expire subscriptions: ${res.status} ${body}`);
+      }
+    },
+
+    async findExpiredQuotas(): Promise<Array<{ id: string; tenant_id: string; quota_key: string; limit: number }>> {
+      const now = new Date().toISOString();
+      const res = await fetch(
+        `${url}/rest/v1/usage_quotas?select=id,tenant_id,quota_key,limit&reset_at=lt.${now}&reset_at=not.is.null`,
+        {
+          headers: { Authorization: authHeader, apikey: apikeyHeader },
+        },
+      );
+      if (!res.ok) return [];
+      return res.json();
+    },
+
+    async resetQuotas(quotaIds: string[]): Promise<void> {
+      if (quotaIds.length === 0) return;
+      const idFilters = quotaIds.map((id) => `id=eq.${id}`).join(",");
+      const nextMonth = new Date();
+      nextMonth.setMonth(nextMonth.getMonth() + 1);
+      const res = await fetch(`${url}/rest/v1/usage_quotas?${idFilters}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: authHeader,
+          apikey: apikeyHeader,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          used: 0,
+          reset_at: nextMonth.toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Failed to reset quotas: ${res.status} ${body}`);
+      }
+    },
+
+    async deleteOldAuditLogs(retentionDays: number): Promise<number> {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - retentionDays);
+      const res = await fetch(
+        `${url}/rest/v1/audit_logs?created_at=lt.${cutoff.toISOString()}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: authHeader,
+            apikey: apikeyHeader,
+            Prefer: "return=representation",
+          },
+        },
+      );
+      if (!res.ok) return 0;
+      const deleted: unknown[] = await res.json();
+      return deleted.length;
+    },
   };
 }
