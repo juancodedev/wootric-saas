@@ -191,7 +191,7 @@ export class Subscription {
 
   get trialDaysRemaining(): number {
     if (!this.trialEndAt) return 0;
-    return Math.max(0, Math.floor((this.trialEndAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+    return Math.max(0, Math.ceil((this.trialEndAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
   }
 
   get isTrialExpired(): boolean {

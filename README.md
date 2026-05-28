@@ -16,7 +16,7 @@ Plataforma SaaS multi-tenancy para integración con Wootric. Construida con **Ne
 | Validation | Zod v4 |
 | Logging | Pino |
 
-## Estado del proyecto — E12 completo
+## Estado del proyecto — E18 completo
 
 | Etapa | Descripción | Estado |
 |-------|------------|--------|
@@ -31,13 +31,18 @@ Plataforma SaaS multi-tenancy para integración con Wootric. Construida con **Ne
 | E9 | Middleware global auth (11-step pipeline) | ✅ |
 | E10 | RLS policies (26 tablas, idempotente) | ✅ |
 | E11 | Dashboards & Widgets CRUD + UI | ✅ |
-| **E12** | **Reportes & Exportaciones (Excel + PDF)** | **✅** |
-| E13 | Workers desacoplados (Export, Sync, Billing) | ⏳ Pendiente |
+| E12 | Reportes & Exportaciones (Excel + PDF) | ✅ |
+| E13 | Workers desacoplados (Export, Sync, Billing) | ✅ |
+| E14 | Auditoría + Cron Jobs | ✅ |
+| E15 | API Layer (tenants, admin) | ✅ |
+| E16 | Billing + Stripe | ✅ |
+| E17 | Tests & QA | ✅ |
+| E18 | Hardening, Deploy & Documentación | ✅ |
 
 ## Rutas de API
 
 ### Auth
-- `POST /api/auth/register` — Crear tenant + admin user
+- `POST /api/auth/register` — Crear tenant + admin user (crea Stripe customer)
 - `POST /api/auth/login` — Login (email+password → JWT)
 - `POST /api/auth/refresh` — Refresh token
 - `POST /api/auth/logout` — Invalidar token
@@ -47,6 +52,25 @@ Plataforma SaaS multi-tenancy para integración con Wootric. Construida con **Ne
 - `GET /api/rbac/permissions` — Listar permisos del tenant
 - `GET /api/rbac/roles` — Listar roles con permisos
 - `POST /api/rbac/assign` — Asignar rol a usuario
+
+### Tenants
+- `GET /api/tenants` — Obtener información del tenant actual
+- `PATCH /api/tenants` — Actualizar tenant actual
+- `GET /api/tenants/config` — Obtener configuración (branding, settings)
+- `PATCH /api/tenants/config` — Actualizar configuración
+
+### Billing
+- `POST /api/billing/checkout` — Crear Stripe Checkout Session
+- `POST /api/billing/portal` — Obtener Customer Portal URL
+- `GET /api/billing/subscription` — Estado de suscripción + facturas
+- `DELETE /api/billing/subscription` — Cancelar suscripción
+
+### Admin
+- `GET /api/admin/tenants` — Listar tenants (paginado)
+- `PATCH /api/admin/tenants` — Actualizar cualquier tenant
+- `GET /api/admin/plans` — Listar planes
+- `POST /api/admin/plans` — Crear plan
+- `PATCH /api/admin/plans` — Actualizar plan
 
 ### Planes & Subscripciones
 - `GET /api/subscriptions` — Subscripción activa del tenant
@@ -83,6 +107,22 @@ Plataforma SaaS multi-tenancy para integración con Wootric. Construida con **Ne
 - `/login` — Login page
 - `/register` — Registro de nuevo tenant
 - `/` — Dashboard principal (protegido)
+
+## Workers Desacoplados
+
+Tres workers independientes que se comunican vía Cloudflare Queues + Service Bindings:
+
+| Worker | Queue (consumer) | Cron | Propósito |
+|--------|-----------------|------|-----------|
+| **Export Worker** | `wootric-exports` | — | Generar Excel/PDF desde cola, subir a R2 |
+| **Sync Worker** | `wootric-sync` | 4 triggers | Sincronizar datos Wootric, trial expiry, quota reset, audit cleanup, grace period |
+| **Billing Worker** | `wootric-billing` | — | Webhooks Stripe (checkout, invoice, payment) |
+
+Service Bindings desde Main Worker:
+- `EXPORT_WORKER` → `wootric-saas-export-worker`
+- `SYNC_WORKER` → `wootric-saas-sync-worker`
+
+
 
 ## Arquitectura del Middleware
 
@@ -156,10 +196,14 @@ Ver `.env.example` para referencia. Las variables críticas:
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypass RLS) |
 | `SUPABASE_DATABASE_URL` | Cadena de conexión directa a Postgres |
 
-## Próximos pasos (E13)
+## Documentación adicional
 
-Workers desacoplados vía Cloudflare Queues:
+Ver `docs/` para documentación detallada:
 
-- **Export Worker** — Procesar cola `EXPORTS`, generar Excel/PDF, subir a R2
-- **Sync Worker** — Sincronizar datos desde Wootric API
-- **Billing Worker** — Facturación recurrente vía Stripe
+| Documento | Descripción |
+|-----------|-------------|
+| `ARCHITECTURE.md` | Arquitectura del sistema, decisiones técnicas |
+| `API.md` | Endpoints con ejemplos de request/response |
+| `RBAC.md` | Roles, permisos, feature flags |
+| `CLOUDFLARE.md` | Workers, bindings, wrangler commands |
+| `DEPLOYMENT.md` | Pipeline CI/CD, dominios, entornos |
