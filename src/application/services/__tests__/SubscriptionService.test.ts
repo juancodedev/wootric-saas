@@ -6,8 +6,19 @@ let queryResult: DataResult = { data: null, error: null };
 let queryIdx = 0;
 const queryResults: DataResult[] = [];
 
-function c() {
-  const result: any = {
+type MockChain = {
+  then: (resolve: (v: DataResult) => void) => void;
+  select: ReturnType<typeof vi.fn>;
+  eq: ReturnType<typeof vi.fn>;
+  order: ReturnType<typeof vi.fn>;
+  limit: ReturnType<typeof vi.fn>;
+  single: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
+  insert: ReturnType<typeof vi.fn>;
+};
+
+function c(): MockChain {
+  const result: MockChain = {
     then: (resolve: (v: DataResult) => void) => {
       const r = queryResults[queryIdx] ?? queryResult;
       queryIdx++;
@@ -31,7 +42,7 @@ function c() {
   return result;
 }
 
-let chain: ReturnType<typeof c>;
+let chain: MockChain;
 
 vi.mock("@/lib/supabase/admin", () => ({
   createSupabaseAdmin: () => ({ from: vi.fn(() => chain) }),

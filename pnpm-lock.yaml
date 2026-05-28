@@ -17,9 +17,6 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.106.2
         version: 2.106.2
-      balanced-match:
-        specifier: ^4.0.4
-        version: 4.0.4
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260527.1)(@types/pg@8.20.0)(pg@8.21.0)

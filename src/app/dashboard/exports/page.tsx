@@ -16,7 +16,7 @@ export default function ExportsPage() {
           <a href="/dashboard/data" className="font-medium text-blue-600 hover:underline">
             Data Explorer
           </a>
-          , seleccioná un rango de fechas y hace clic en "Export".
+          , seleccioná un rango de fechas y hace clic en &quot;Export&quot;.
         </p>
       </div>
     </div>

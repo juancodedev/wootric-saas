@@ -191,7 +191,7 @@ async function failExport(
   }
 }
 
-export default {
+const worker = {
   async queue(
     batch: MessageBatch<ExportJobMessage>,
     env: Env,
@@ -224,3 +224,5 @@ export default {
     await Promise.allSettled(results);
   },
 };
+
+export default worker;

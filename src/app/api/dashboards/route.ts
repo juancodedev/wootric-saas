@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { DashboardService } from "@/application/services/DashboardService";
 import type { CreateDashboardRequest } from "@/presentation/dtos/dashboard";
+import { DashboardVisibility } from "@/domain/enums";
 import { getAuthContextFromToken } from "@/lib/auth/context";
 
 function getTenantId(request: NextRequest): string | null {
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
       userId,
       name: body.name.trim(),
       description: body.description,
-      visibility: body.visibility as any,
+      visibility: body.visibility as DashboardVisibility,
       layout: body.layout,
     });
 

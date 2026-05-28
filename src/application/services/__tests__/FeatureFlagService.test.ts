@@ -8,8 +8,20 @@ let queryResult: DataResult = { data: null, error: null };
 let queryIdx = 0;
 const queryResults: DataResult[] = [];
 
-function chain() {
-  const c: any = {
+type MockChain = {
+  then: (resolve: (v: DataResult) => void) => void;
+  select: ReturnType<typeof vi.fn>;
+  eq: ReturnType<typeof vi.fn>;
+  single: ReturnType<typeof vi.fn>;
+  maybeSingle: ReturnType<typeof vi.fn>;
+  order: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
+  insert: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
+};
+
+function chain(): MockChain {
+  const c = {
     then: (resolve: (v: DataResult) => void) => {
       const r = queryResults[queryIdx] ?? queryResult;
       queryIdx++;
@@ -31,7 +43,7 @@ function chain() {
   c.insert.mockReturnValue(c);
   c.single.mockImplementation(() => c);
   c.maybeSingle.mockImplementation(() => c);
-  c["delete"].mockReturnValue(c);
+  c.delete.mockReturnValue(c);
   return c;
 }
 
@@ -152,7 +164,7 @@ describe("FeatureFlagService", () => {
       const ff = new FeatureFlagService();
       await ff.removeOverride("pdf_exports", "tenant1");
 
-      expect(c["delete"]).toHaveBeenCalled();
+      expect(c.delete).toHaveBeenCalled();
     });
 
     it("throws when flag not found", async () => {

@@ -131,7 +131,7 @@ async function handleScheduledSync(env: Env): Promise<void> {
   log("info", `Scheduled sync complete: ${totalSynced} responses synced, ${totalErrors} errors across ${tenants.length} tenants`);
 }
 
-export default {
+const worker = {
   async queue(
     batch: MessageBatch<SyncJobMessage>,
     env: Env,
@@ -281,3 +281,5 @@ export default {
     }
   },
 };
+
+export default worker;

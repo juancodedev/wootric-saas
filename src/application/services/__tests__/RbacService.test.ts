@@ -6,8 +6,19 @@ let queryResult: DataResult = { data: null, error: null };
 let queryIdx = 0;
 const queryResults: DataResult[] = [];
 
-function chain() {
-  const c: any = {
+type MockChain = {
+  then: (resolve: (v: DataResult) => void) => void;
+  select: ReturnType<typeof vi.fn>;
+  eq: ReturnType<typeof vi.fn>;
+  in: ReturnType<typeof vi.fn>;
+  order: ReturnType<typeof vi.fn>;
+  single: ReturnType<typeof vi.fn>;
+  maybeSingle: ReturnType<typeof vi.fn>;
+  limit: ReturnType<typeof vi.fn>;
+};
+
+function chain(): MockChain {
+  const c = {
     then: (resolve: (v: DataResult) => void) => {
       const r = queryResults[queryIdx] ?? queryResult;
       queryIdx++;
@@ -23,7 +34,7 @@ function chain() {
   };
   c.select.mockReturnValue(c);
   c.eq.mockReturnValue(c);
-  c["in"] = vi.fn().mockReturnValue(c);
+  c.in.mockReturnValue(c);
   c.order.mockReturnValue(c);
   c.limit.mockReturnValue(c);
   c.single.mockReturnValue(c);

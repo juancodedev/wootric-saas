@@ -5,7 +5,7 @@ export class PdfGeneratorService implements IPdfGenerator {
     template: string,
     data: Record<string, unknown>,
     options?: PdfOptions,
-  ): Promise<any> {
+  ): Promise<ArrayBuffer> {
     const ReactPDF = await import("@react-pdf/renderer");
     const React = await import("react");
 
@@ -63,7 +63,7 @@ export class PdfGeneratorService implements IPdfGenerator {
         size: options?.format ?? "A4",
         orientation: options?.orientation ?? "portrait",
         style: styles.page,
-      } as any,
+      } as Record<string, unknown>,
       ...children,
     );
 

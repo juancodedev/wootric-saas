@@ -101,8 +101,8 @@ export default function DataExplorerPage() {
 
   // Initial load on mount + reload when date range changes
   useEffect(() => {
-    loadLocalData(1);
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadLocalData(1);
   }, [startDate, endDate, perPage, loadLocalData]);
 
   const fetchData = useCallback(async (pageNum: number) => {
