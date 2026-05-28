@@ -2,10 +2,15 @@ import "reflect-metadata";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
+import { getAuthContextFromToken } from "@/lib/auth/context";
+
+function getTenantId(request: NextRequest): string | null {
+  return request.headers.get("x-tenant-id") ?? getAuthContextFromToken(request).tenantId;
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const tenantId = request.headers.get("x-tenant-id");
+    const tenantId = getTenantId(request);
     if (!tenantId) {
       return NextResponse.json({ error: "No tenant context" }, { status: 401 });
     }
@@ -29,7 +34,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const tenantId = request.headers.get("x-tenant-id");
+    const tenantId = getTenantId(request);
     if (!tenantId) {
       return NextResponse.json({ error: "No tenant context" }, { status: 401 });
     }

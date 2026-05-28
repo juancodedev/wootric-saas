@@ -114,7 +114,7 @@ export default function WootricSettingsPage() {
             value={apiUrl}
             onChange={(e) => setApiUrl(e.target.value)}
             placeholder="https://api.wootric.com"
-            className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-black focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
@@ -125,7 +125,7 @@ export default function WootricSettingsPage() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="tu-usuario"
-            className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-black focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
@@ -136,7 +136,7 @@ export default function WootricSettingsPage() {
             value={password === "__saved__" ? "" : password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={password === "__saved__" ? "••••••••" : "tu-contraseña"}
-            className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-black focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           {password === "__saved__" && (
             <p className="mt-1 text-xs text-zinc-400">Password guardado — dejalo vacío para mantenerlo</p>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isAuthenticated, apiFetch } from "@/lib/auth-client";
+import { ToggleSwitch } from "@/components/dashboard/toggle-switch";
 
 type DashboardInfo = {
   id: string;
@@ -16,6 +17,7 @@ type DashboardInfo = {
 type FeatureFlag = {
   key: string;
   name: string;
+  description: string | null;
   enabled: boolean;
 };
 
@@ -25,6 +27,7 @@ export default function DashboardPage() {
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [toggling, setToggling] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -43,6 +46,26 @@ export default function DashboardPage() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [router]);
+
+  async function handleToggle(key: string, enabled: boolean) {
+    setToggling((prev) => new Set(prev).add(key));
+    setFlags((prev) => prev.map((f) => (f.key === key ? { ...f, enabled } : f)));
+
+    try {
+      await apiFetch("/api/feature-flags", {
+        method: "POST",
+        body: JSON.stringify({ flagKey: key, enabled }),
+      });
+    } catch {
+      setFlags((prev) => prev.map((f) => (f.key === key ? { ...f, enabled: !enabled } : f)));
+    } finally {
+      setToggling((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
 
   if (loading) {
     return (
@@ -100,21 +123,22 @@ export default function DashboardPage() {
         </h2>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {flags.map((f) => (
-            <div
-              key={f.key}
-              className="flex items-center justify-between rounded-lg border bg-white px-4 py-2.5 text-sm"
-            >
-              <span className="text-zinc-700">{f.name}</span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                  f.enabled
-                    ? "bg-green-100 text-green-700"
-                    : "bg-zinc-100 text-zinc-500"
-                }`}
+              <div
+                key={f.key}
+                className="flex items-center justify-between rounded-lg border bg-white px-4 py-2.5 text-sm"
               >
-                {f.enabled ? "ON" : "OFF"}
-              </span>
-            </div>
+                <div>
+                  <span className="text-zinc-700">{f.name}</span>
+                  {f.description && (
+                    <p className="mt-0.5 text-xs text-zinc-400">{f.description}</p>
+                  )}
+                </div>
+                <ToggleSwitch
+                  enabled={f.enabled}
+                  onChange={(val) => handleToggle(f.key, val)}
+                  loading={toggling.has(f.key)}
+                />
+              </div>
           ))}
         </div>
       </section>

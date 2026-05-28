@@ -105,6 +105,50 @@ export class WootricService {
     }, params?.signal);
   }
 
+  async fetchAllResponses(params?: {
+    startDate?: string;
+    endDate?: string;
+    signal?: AbortSignal;
+    onPage?: (responses: WootricResponseItem[], page: number) => Promise<void>;
+    maxPages?: number;
+  }): Promise<{
+    responses: WootricResponseItem[];
+    totalCount: number;
+    pagesFetched: number;
+  }> {
+    let page = 1;
+    let totalPages = 1;
+    const allResponses: WootricResponseItem[] = [];
+    const perPage = 100;
+
+    while (page <= totalPages) {
+      if (params?.maxPages && page > params.maxPages) break;
+
+      const result = await this.fetchResponses({
+        page,
+        perPage,
+        startDate: params?.startDate,
+        endDate: params?.endDate,
+        signal: params?.signal,
+      });
+
+      allResponses.push(...result.data);
+      totalPages = result.meta?.total_pages ?? 1;
+
+      if (params?.onPage) {
+        await params.onPage(result.data, page);
+      }
+
+      page++;
+    }
+
+    return {
+      responses: allResponses,
+      totalCount: allResponses.length,
+      pagesFetched: page - 1,
+    };
+  }
+
   async testConnection(signal?: AbortSignal): Promise<{ ok: boolean; message: string; totalResponses?: number }> {
     try {
       const result = await this.request<PaginatedResponse>("/v1/responses", { per_page: 1 }, signal);
