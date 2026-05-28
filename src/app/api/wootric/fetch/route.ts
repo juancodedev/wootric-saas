@@ -21,6 +21,32 @@ async function getWootricConfig(tenantId: string): Promise<Record<string, unknow
   return wootric ?? null;
 }
 
+function upsertResponses(admin: ReturnType<typeof createSupabaseAdmin>, tenantId: string, items: import("@/application/services/WootricService").WootricResponseItem[]) {
+  if (items.length === 0) return null;
+
+  const rows = items.map((item) => ({
+    tenant_id: tenantId,
+    wootric_id: item.id,
+    survey_id: item.survey_id,
+    end_user_id: item.end_user_id ?? null,
+    email: item.email ?? null,
+    score: item.score ?? null,
+    text: item.text ?? null,
+    origin_url: item.origin_url ?? null,
+    ip_address: item.ip_address ?? null,
+    wootric_created_at: item.created_at,
+    wootric_updated_at: item.updated_at ?? null,
+    tags: item.tags ?? [],
+    end_user_properties: item.end_user?.properties ?? null,
+    synced_at: new Date().toISOString(),
+  }));
+
+  return admin.from("wootric_responses").upsert(rows, {
+    onConflict: "tenant_id,wootric_id",
+    ignoreDuplicates: false,
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const tenantId = getTenantId(request);
@@ -31,8 +57,6 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       startDate?: string;
       endDate?: string;
-      page?: number;
-      perPage?: number;
     };
 
     const wootric = await getWootricConfig(tenantId);
@@ -53,25 +77,26 @@ export async function POST(request: NextRequest) {
     });
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 120000);
+    const admin = createSupabaseAdmin();
+    let totalSynced = 0;
 
     try {
-      const result = await client.fetchResponses({
+      await client.fetchAllResponses({
         startDate: body.startDate,
         endDate: body.endDate,
-        page: body.page ?? 1,
-        perPage: Math.min(body.perPage ?? 50, 50),
         signal: controller.signal,
+        maxPages: 30,
+        onPage: async (items) => {
+          const result = await upsertResponses(admin, tenantId, items);
+          if (result?.error) console.error("Upsert error on page:", result.error);
+          totalSynced += items.length;
+        },
       });
 
       return NextResponse.json({
-        data: result.data,
-        meta: {
-          totalCount: result.meta.total_count,
-          page: result.meta.current_page,
-          totalPages: result.meta.total_pages,
-          nextPage: result.meta.next_page,
-        },
+        source: "fetched",
+        recordsSynced: totalSynced,
       });
     } finally {
       clearTimeout(timeout);

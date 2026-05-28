@@ -8,11 +8,20 @@ import type { WootricResponseItem } from "@/application/services/WootricService"
 
 type WootricResponse = WootricResponseItem;
 
-type FetchMeta = {
-  totalCount: number;
-  page: number;
-  totalPages: number;
-  nextPage: number | null;
+type LocalResult = {
+  data: WootricResponse[];
+  meta: {
+    totalCount: number;
+    page: number;
+    totalPages: number;
+    nextPage: number | null;
+  };
+  source: "local" | "empty";
+};
+
+type FetchResult = {
+  source: "fetched";
+  recordsSynced: number;
 };
 
 const PAGE_SIZES = [10, 25, 50];
@@ -39,12 +48,34 @@ function getScoreColor(score?: number): string {
   return "bg-red-100 text-red-700";
 }
 
+async function queryLocal(startDate: string, endDate: string, page: number, perPage: number): Promise<LocalResult> {
+  return apiFetch<LocalResult>("/api/wootric/local", {
+    method: "POST",
+    body: JSON.stringify({
+      startDate: new Date(startDate).toISOString(),
+      endDate: new Date(endDate + "T23:59:59").toISOString(),
+      page,
+      perPage,
+    }),
+  });
+}
+
+async function fetchFromWootric(startDate: string, endDate: string): Promise<FetchResult> {
+  return apiFetch<FetchResult>("/api/wootric/fetch", {
+    method: "POST",
+    body: JSON.stringify({
+      startDate: new Date(startDate).toISOString(),
+      endDate: new Date(endDate + "T23:59:59").toISOString(),
+    }),
+  });
+}
+
 export default function DataExplorerPage() {
   const [startDate, setStartDate] = useState(thirtyDaysAgo());
   const [endDate, setEndDate] = useState(today());
   const [perPage, setPerPage] = useState(25);
   const [data, setData] = useState<WootricResponse[]>([]);
-  const [meta, setMeta] = useState<FetchMeta | null>(null);
+  const [meta, setMeta] = useState<LocalResult["meta"] | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -53,27 +84,27 @@ export default function DataExplorerPage() {
   const [tab, setTab] = useState<"data" | "analytics">("data");
   const [allResponses, setAllResponses] = useState<WootricResponse[]>([]);
   const [loadingAll, setLoadingAll] = useState(false);
+  const [lastFetchedRange, setLastFetchedRange] = useState("");
 
   const fetchData = useCallback(async (pageNum: number) => {
     setLoading(true);
     setError("");
     setNotConfigured(false);
     try {
-      const result = await apiFetch<{
-        data: WootricResponse[];
-        meta: FetchMeta;
-      }>("/api/wootric/fetch", {
-        method: "POST",
-        body: JSON.stringify({
-          startDate: startDate ? new Date(startDate).toISOString() : undefined,
-          endDate: endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined,
-          page: pageNum,
-          perPage,
-        }),
-      });
-      setData(result.data);
-      setMeta(result.meta);
-      setPage(pageNum);
+      const local = await queryLocal(startDate, endDate, pageNum, perPage);
+
+      if (local.source === "empty") {
+        await fetchFromWootric(startDate, endDate);
+        const refreshed = await queryLocal(startDate, endDate, pageNum, perPage);
+        setData(refreshed.data);
+        setMeta(refreshed.meta);
+        setPage(pageNum);
+      } else {
+        setData(local.data);
+        setMeta(local.meta);
+        setPage(pageNum);
+      }
+      setLastFetchedRange(`${startDate}::${endDate}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch";
       if (msg.includes("not configured")) setNotConfigured(true);
@@ -88,30 +119,15 @@ export default function DataExplorerPage() {
     setError("");
     setNotConfigured(false);
     try {
-      const all: WootricResponse[] = [];
-      let currentPage = 1;
-      let hasMore = true;
+      const local = await queryLocal(startDate, endDate, 1, 9999);
 
-      while (hasMore) {
-        const result = await apiFetch<{
-          data: WootricResponse[];
-          meta: FetchMeta;
-        }>("/api/wootric/fetch", {
-          method: "POST",
-          body: JSON.stringify({
-            startDate: startDate ? new Date(startDate).toISOString() : undefined,
-            endDate: endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined,
-            page: currentPage,
-            perPage: 50,
-          }),
-        });
-
-        all.push(...result.data);
-        hasMore = result.meta.nextPage != null && currentPage < 30;
-        currentPage++;
+      if (local.source === "empty") {
+        await fetchFromWootric(startDate, endDate);
+        const refreshed = await queryLocal(startDate, endDate, 1, 9999);
+        setAllResponses(refreshed.data);
+      } else {
+        setAllResponses(local.data);
       }
-
-      setAllResponses(all);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch";
       if (msg.includes("not configured")) setNotConfigured(true);
@@ -127,6 +143,11 @@ export default function DataExplorerPage() {
         <h1 className="text-xl font-semibold text-zinc-900">Data Explorer</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Consulta y visualiza respuestas de encuestas de Wootric.
+          {meta && (
+            <span className="ml-2 text-xs text-zinc-400">
+              (datos locales &mdash; &uacute;ltima sincronizaci&oacute;n: {lastFetchedRange.split("::")[0]} a {lastFetchedRange.split("::")[1]})
+            </span>
+          )}
         </p>
       </div>
 
@@ -161,7 +182,7 @@ export default function DataExplorerPage() {
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-zinc-500">Por página</label>
+          <label className="block text-xs font-medium text-zinc-500">Por p&aacute;gina</label>
           <select
             value={perPage}
             onChange={(e) => setPerPage(Number(e.target.value))}
@@ -208,7 +229,7 @@ export default function DataExplorerPage() {
         <button
           onClick={() => {
             setTab("analytics");
-            if (allResponses.length === 0 && !loadingAll) {
+            if (allResponses.length === 0 && !loadingAll && !loading) {
               fetchAllForAnalytics();
             }
           }}
@@ -315,7 +336,7 @@ export default function DataExplorerPage() {
             <div className="flex items-center justify-center py-12">
               <div className="flex flex-col items-center gap-3">
                 <div className="size-8 animate-spin rounded-full border-4 border-zinc-200 border-t-blue-600" />
-                <p className="text-sm text-zinc-500">Fetching all responses for analytics...</p>
+                <p className="text-sm text-zinc-500">Fetching responses for analytics...</p>
               </div>
             </div>
           )}
