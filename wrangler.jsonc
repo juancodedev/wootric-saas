@@ -1,66 +1,70 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "wootric-saas",
-  "main": ".open-next/worker.js",
-  "compatibility_date": "2026-05-22",
-  "compatibility_flags": [
-    "nodejs_compat",
-    "global_fetch_strictly_public"
-  ],
-  "assets": {
-    "directory": ".open-next/assets",
-    "binding": "ASSETS"
-  },
-  "vars": {
-    "NEXT_PUBLIC_SUPABASE_URL": "",
-    "NEXT_PUBLIC_APP_URL": "",
-    "LOG_LEVEL": "info",
-    "RATE_LIMIT_WINDOW_SECONDS": "60",
-    "RATE_LIMIT_MAX_REQUESTS": "100",
-    "STORAGE_BUCKET": "wootric-saas-exports"
-  },
-  "kv_namespaces": [
-    { "binding": "KV_CACHE", "id": "60bcd0cc-db1e-4227-b1ef-22c7d7d42a05" },
-    { "binding": "KV_RATE_LIMIT", "id": "bd8c84fa-510f-49eb-aad3-aafaa474fd15" },
-    { "binding": "KV_SESSIONS", "id": "f59601a4-6f8c-4366-921f-6489358cf8c5" }
-  ],
-  "r2_buckets": [
-    { "binding": "R2_EXPORTS", "bucket_name": "wootric-saas-exports" }
-  ],
-  "queues": {
-    "producers": [
-      { "binding": "QUEUE_EXPORTS", "queue": "wootric-exports" },
-      { "binding": "QUEUE_SYNC", "queue": "wootric-sync" },
-      { "binding": "QUEUE_BILLING", "queue": "wootric-billing" }
-    ]
-  },
-
-  "services": [
-    {
-      "binding": "EXPORT_WORKER",
-      "service": "wootric-saas-export-worker"
-    },
-    {
-      "binding": "SYNC_WORKER",
-      "service": "wootric-saas-sync-worker"
-    }
-  ],
-  "observability": {
-    "enabled": true,
-    "head_sampling_rate": 0.5
-  },
-  "env": {
-    "production": {
-      "name": "wootric-saas",
-      "vars": {
-        "NEXT_PUBLIC_APP_URL": "https://app.wootric.com"
-      }
-    },
-    "staging": {
-      "name": "wootric-saas-staging",
-      "vars": {
-        "NEXT_PUBLIC_APP_URL": "https://staging.app.wootric.com"
-      }
-    }
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "wootric-saas",
+	"main": ".open-next/worker.js",
+	"compatibility_date": "2026-05-22",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"vars": {
+		"LOG_LEVEL": "info",
+		"RATE_LIMIT_WINDOW_SECONDS": "60",
+		"RATE_LIMIT_MAX_REQUESTS": "100",
+		"STORAGE_BUCKET": "wootric-saas-exports"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "KV_CACHE",
+			"id": "60bcd0cc-db1e-4227-b1ef-22c7d7d42a05"
+		},
+		{
+			"binding": "KV_RATE_LIMIT",
+			"id": "bd8c84fa-510f-49eb-aad3-aafaa474fd15"
+		},
+		{
+			"binding": "KV_SESSIONS",
+			"id": "f59601a4-6f8c-4366-921f-6489358cf8c5"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "R2_EXPORTS",
+			"bucket_name": "wootric-saas-exports"
+		}
+	],
+	"queues": {
+		"producers": [
+			{
+				"binding": "QUEUE_EXPORTS",
+				"queue": "wootric-exports"
+			},
+			{
+				"binding": "QUEUE_SYNC",
+				"queue": "wootric-sync"
+			},
+			{
+				"binding": "QUEUE_BILLING",
+				"queue": "wootric-billing"
+			}
+		]
+	},
+	"services": [
+		{
+			"binding": "EXPORT_WORKER",
+			"service": "wootric-saas-export-worker"
+		},
+		{
+			"binding": "SYNC_WORKER",
+			"service": "wootric-saas-sync-worker"
+		}
+	],
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 0.5
+	}
 }
