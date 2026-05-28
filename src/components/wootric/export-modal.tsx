@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { getToken } from "@/lib/auth-client";
 
 type Props = {
   startDate: string;
@@ -19,7 +20,10 @@ export function ExportModal({ startDate, endDate, onClose }: Props) {
     try {
       const res = await fetch("/api/wootric/export", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+        },
         body: JSON.stringify({
           startDate: startDate ? new Date(startDate).toISOString() : undefined,
           endDate: endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined,

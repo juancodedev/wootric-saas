@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     };
 
     const page = Math.max(body.page ?? 1, 1);
-    const perPage = Math.min(Math.max(body.perPage ?? 25, 1), 50);
+    const perPage = Math.min(Math.max(body.perPage ?? 25, 1), 100000);
     const offset = (page - 1) * perPage;
 
     const admin = createSupabaseAdmin();

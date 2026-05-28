@@ -14,7 +14,7 @@ export function TrendChart({ data }: Props) {
     <div className="rounded-xl border bg-white p-5 shadow-sm">
       <h3 className="mb-4 text-sm font-medium text-zinc-500">Score Trend</h3>
       <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={data} margin={{ bottom: 0, left: -10, right: 0 }}>
+        <LineChart data={data} margin={{ top: 20, bottom: 0, left: -10, right: 10 }}>
           <XAxis
             dataKey="date"
             axisLine={false}
@@ -27,6 +27,7 @@ export function TrendChart({ data }: Props) {
             axisLine={false}
             tickLine={false}
             tick={{ fontSize: 11, fill: "#71717a" }}
+            allowDecimals={false}
           />
           <Tooltip
             contentStyle={{ fontSize: 13, borderRadius: 8, border: "1px solid #e4e4e7" }}

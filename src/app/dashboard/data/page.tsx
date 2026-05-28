@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { apiFetch } from "@/lib/auth-client";
 import { ExportModal } from "@/components/wootric/export-modal";
 import { DashboardCharts } from "@/components/wootric/dashboard-charts";
@@ -84,27 +84,37 @@ export default function DataExplorerPage() {
   const [tab, setTab] = useState<"data" | "analytics">("data");
   const [allResponses, setAllResponses] = useState<WootricResponse[]>([]);
   const [loadingAll, setLoadingAll] = useState(false);
-  const [lastFetchedRange, setLastFetchedRange] = useState("");
+  const [hasLocalData, setHasLocalData] = useState(false);
+
+  // Load local data on mount and when date range or pagination changes
+  const loadLocalData = useCallback(async (pageNum: number) => {
+    try {
+      const local = await queryLocal(startDate, endDate, pageNum, perPage);
+      setData(local.data);
+      setMeta(local.meta);
+      setPage(pageNum);
+      setHasLocalData(local.source === "local");
+    } catch {
+      // Silently fail — user can click Fetch Data
+    }
+  }, [startDate, endDate, perPage]);
+
+  // Initial load + reload when date range / perPage changes
+  useEffect(() => {
+    loadLocalData(1);
+  }, [startDate, endDate, perPage, loadLocalData]);
 
   const fetchData = useCallback(async (pageNum: number) => {
     setLoading(true);
     setError("");
     setNotConfigured(false);
     try {
+      await fetchFromWootric(startDate, endDate);
       const local = await queryLocal(startDate, endDate, pageNum, perPage);
-
-      if (local.source === "empty") {
-        await fetchFromWootric(startDate, endDate);
-        const refreshed = await queryLocal(startDate, endDate, pageNum, perPage);
-        setData(refreshed.data);
-        setMeta(refreshed.meta);
-        setPage(pageNum);
-      } else {
-        setData(local.data);
-        setMeta(local.meta);
-        setPage(pageNum);
-      }
-      setLastFetchedRange(`${startDate}::${endDate}`);
+      setData(local.data);
+      setMeta(local.meta);
+      setPage(pageNum);
+      setHasLocalData(local.source === "local");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch";
       if (msg.includes("not configured")) setNotConfigured(true);
@@ -114,24 +124,13 @@ export default function DataExplorerPage() {
     }
   }, [startDate, endDate, perPage]);
 
-  const fetchAllForAnalytics = useCallback(async () => {
+  const loadAllForAnalytics = useCallback(async () => {
     setLoadingAll(true);
-    setError("");
-    setNotConfigured(false);
     try {
       const local = await queryLocal(startDate, endDate, 1, 9999);
-
-      if (local.source === "empty") {
-        await fetchFromWootric(startDate, endDate);
-        const refreshed = await queryLocal(startDate, endDate, 1, 9999);
-        setAllResponses(refreshed.data);
-      } else {
-        setAllResponses(local.data);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to fetch";
-      if (msg.includes("not configured")) setNotConfigured(true);
-      setError(msg);
+      setAllResponses(local.data);
+    } catch {
+      // ignore
     } finally {
       setLoadingAll(false);
     }
@@ -143,10 +142,8 @@ export default function DataExplorerPage() {
         <h1 className="text-xl font-semibold text-zinc-900">Data Explorer</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Consulta y visualiza respuestas de encuestas de Wootric.
-          {meta && (
-            <span className="ml-2 text-xs text-zinc-400">
-              (datos locales &mdash; &uacute;ltima sincronizaci&oacute;n: {lastFetchedRange.split("::")[0]} a {lastFetchedRange.split("::")[1]})
-            </span>
+          {hasLocalData && (
+            <span className="ml-2 text-xs text-zinc-400">(datos locales)</span>
           )}
         </p>
       </div>
@@ -199,7 +196,7 @@ export default function DataExplorerPage() {
           disabled={loading}
           className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? "Fetching..." : "Fetch Data"}
+          {loading ? "Syncing..." : "Fetch Data"}
         </button>
 
         {meta && tab === "data" && (
@@ -229,8 +226,8 @@ export default function DataExplorerPage() {
         <button
           onClick={() => {
             setTab("analytics");
-            if (allResponses.length === 0 && !loadingAll && !loading) {
-              fetchAllForAnalytics();
+            if (allResponses.length === 0 && !loadingAll) {
+              loadAllForAnalytics();
             }
           }}
           className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
@@ -251,15 +248,15 @@ export default function DataExplorerPage() {
               </span>
               <div className="flex gap-2">
                 <button
-                  onClick={() => fetchData(page - 1)}
+                  onClick={() => loadLocalData(page - 1)}
                   disabled={page <= 1 || loading}
                   className="rounded-lg border px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Previous
                 </button>
                 <button
-                  onClick={() => fetchData(page + 1)}
-                  disabled={page >= meta.totalPages || loading}
+                  onClick={() => loadLocalData(page + 1)}
+                  disabled={page >= (meta?.totalPages ?? 1) || loading}
                   className="rounded-lg border px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Next
@@ -323,7 +320,7 @@ export default function DataExplorerPage() {
 
           {!loading && data.length === 0 && !error && (
             <div className="rounded-lg border-2 border-dashed border-zinc-200 p-12 text-center text-zinc-500">
-              No data yet. Select a date range and click &quot;Fetch Data&quot;.
+              No hay datos locales para este rango. Haz clic en &quot;Fetch Data&quot; para sincronizar desde Wootric.
             </div>
           )}
         </>
@@ -336,7 +333,7 @@ export default function DataExplorerPage() {
             <div className="flex items-center justify-center py-12">
               <div className="flex flex-col items-center gap-3">
                 <div className="size-8 animate-spin rounded-full border-4 border-zinc-200 border-t-blue-600" />
-                <p className="text-sm text-zinc-500">Fetching responses for analytics...</p>
+                <p className="text-sm text-zinc-500">Cargando datos locales...</p>
               </div>
             </div>
           )}
@@ -344,14 +341,13 @@ export default function DataExplorerPage() {
           {!loadingAll && allResponses.length > 0 && (
             <div className="flex items-center justify-between">
               <p className="text-sm text-zinc-500">
-                Analyzing {allResponses.length} responses from{" "}
-                {startDate} to {endDate}
+                Analizando {allResponses.length} respuestas del {startDate} al {endDate}
               </p>
               <button
-                onClick={fetchAllForAnalytics}
+                onClick={loadAllForAnalytics}
                 className="rounded-lg border px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50"
               >
-                Refresh
+                Recargar
               </button>
             </div>
           )}
@@ -362,7 +358,7 @@ export default function DataExplorerPage() {
 
           {!loadingAll && allResponses.length === 0 && !error && (
             <div className="rounded-lg border-2 border-dashed border-zinc-200 p-12 text-center text-zinc-500">
-              Click the Analytics tab to automatically fetch and visualize response data.
+              No hay datos locales para este rango. Primero sincroniza desde la vista Data.
             </div>
           )}
         </>

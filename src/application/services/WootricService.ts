@@ -232,18 +232,19 @@ export class WootricService {
     const queryParams: Record<string, string | number | undefined> = {
       page: params?.page ?? 1,
       per_page: Math.min(params?.perPage ?? 50, 50),
+      sort_key: "created_at",
+      sort_order: "asc",
     };
 
     if (params?.startDate) {
-      queryParams["created[gt]"] = Math.floor(new Date(params.startDate).getTime() / 1000);
+      queryParams["created[gte]"] = Math.floor(new Date(params.startDate).getTime() / 1000);
     }
     if (params?.endDate) {
-      queryParams["created[lt]"] = Math.floor(new Date(params.endDate).getTime() / 1000);
+      queryParams["created[lte]"] = Math.floor(new Date(params.endDate).getTime() / 1000);
     }
 
     const raw = await this.request<WootricApiResponse[]>("/v1/responses", queryParams, params?.signal);
 
-    // Wootric returns a plain array, we need to paginate locally or get count from response
     const items: WootricResponseItem[] = raw.map((r) => ({
       id: r.id,
       end_user_id: r.end_user_id,
@@ -287,36 +288,90 @@ export class WootricService {
     totalCount: number;
     pagesFetched: number;
   }> {
-    let page = 1;
-    let totalPages = 1;
-    const allResponses: WootricResponseItem[] = [];
+    const startTs = params?.startDate
+      ? Math.floor(new Date(params.startDate).getTime() / 1000)
+      : 0;
+    const endTs = params?.endDate
+      ? Math.floor(new Date(params.endDate).getTime() / 1000)
+      : Math.floor(Date.now() / 1000);
     const perPage = 50;
+    const maxPages = params?.maxPages ?? 30;
 
-    while (page <= totalPages) {
-      if (params?.maxPages && page > params.maxPages) break;
+    const allResponses: WootricResponseItem[] = [];
+    const seenIds = new Set<number>();
+    let currentStart = startTs;
+    let pagesFetched = 0;
 
-      const result = await this.fetchResponses({
-        page,
-        perPage,
-        startDate: params?.startDate,
-        endDate: params?.endDate,
-        signal: params?.signal,
-      });
+    while (currentStart <= endTs) {
+      let page = 1;
+      let lastTimestamp = currentStart;
+      let newRecordsFound = false;
 
-      allResponses.push(...result.data);
-      totalPages = result.meta.total_pages;
+      while (page <= maxPages) {
+        const queryParams: Record<string, string | number | undefined> = {
+          page,
+          per_page: perPage,
+          sort_key: "created_at",
+          sort_order: "asc",
+          "created[gte]": currentStart,
+          "created[lte]": endTs,
+        };
 
-      if (params?.onPage) {
-        await params.onPage(result.data, page);
+        const raw = await this.request<WootricApiResponse[]>("/v1/responses", queryParams, params?.signal);
+
+        if (!raw || raw.length === 0) break;
+
+        const pageItems: WootricResponseItem[] = [];
+
+        for (const r of raw) {
+          if (seenIds.has(r.id)) continue;
+          seenIds.add(r.id);
+
+          const item: WootricResponseItem = {
+            id: r.id,
+            end_user_id: r.end_user_id,
+            survey_id: r.survey_id,
+            email: undefined,
+            score: r.score,
+            text: r.text ?? undefined,
+            comment: r.text ?? undefined,
+            origin_url: r.origin_url ?? undefined,
+            created_at: r.created_at,
+            updated_at: r.updated_at ?? undefined,
+            ip_address: r.ip_address ?? undefined,
+            tags: r.tags,
+            end_user: r.end_user ?? undefined,
+          };
+
+          pageItems.push(item);
+          allResponses.push(item);
+          newRecordsFound = true;
+
+          const ts = Math.floor(new Date(r.created_at).getTime() / 1000);
+          if (ts > lastTimestamp) lastTimestamp = ts;
+        }
+
+        pagesFetched++;
+
+        if (params?.onPage) {
+          await params.onPage(pageItems, pagesFetched);
+        }
+
+        if (raw.length < perPage) break;
+
+        page++;
       }
 
-      page++;
+      if (!newRecordsFound) break;
+      if (lastTimestamp <= currentStart) break;
+
+      currentStart = lastTimestamp + 1;
     }
 
     return {
       responses: allResponses,
       totalCount: allResponses.length,
-      pagesFetched: page - 1,
+      pagesFetched,
     };
   }
 
