@@ -32,21 +32,13 @@
       { "binding": "QUEUE_EXPORTS", "queue": "wootric-exports" },
       { "binding": "QUEUE_SYNC", "queue": "wootric-sync" },
       { "binding": "QUEUE_BILLING", "queue": "wootric-billing" }
-    ],
-    "consumers": [
-      {
-        "queue": "wootric-exports",
-        "max_batch_size": 5,
-        "max_batch_timeout": 30
-      }
     ]
   },
   "triggers": {
     "crons": [
-      "0 0 * * *",
-      "0 1 * * *",
-      "*/30 * * * *",
-      "0 3 * * 0"
+      "0 0 * * *",     // Daily: trial expiration check
+      "0 1 * * *",     // Daily: quota reset
+      "0 3 * * 0"      // Weekly: audit log cleanup
     ]
   },
   "services": [

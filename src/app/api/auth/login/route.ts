@@ -5,6 +5,47 @@ import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { SessionService } from "@/infrastructure/auth/SessionService";
 import type { LoginRequestDto, AuthResponse } from "@/presentation/dtos/auth";
 
+interface SupabaseAuthResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  expires_at: number;
+  token_type: string;
+  user: {
+    id: string;
+    email: string;
+  };
+}
+
+async function signInWithPassword(
+  email: string,
+  password: string,
+): Promise<SupabaseAuthResponse> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error("Supabase URL and service role key are required");
+  }
+
+  const res = await fetch(`${url}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((body as { error: string }).error ?? "Invalid credentials");
+  }
+
+  return res.json();
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as LoginRequestDto;
@@ -16,23 +57,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use admin client for sign-in (service_role key works as apikey on /token endpoint)
-    const supabase = createSupabaseAdmin();
-    const { data: auth, error } = await supabase.auth.signInWithPassword({
-      email: body.email,
-      password: body.password,
-    });
-
-    if (error || !auth.session) {
+    let auth: SupabaseAuthResponse;
+    try {
+      auth = await signInWithPassword(body.email, body.password);
+    } catch (err) {
       return NextResponse.json(
-        { error: error?.message ?? "Invalid credentials" },
+        { error: err instanceof Error ? err.message : "Invalid credentials" },
         { status: 401 },
       );
     }
 
     const sessions = new SessionService();
-
-    // Use a FRESH admin client for data queries to avoid auth client session interference
     const admin = createSupabaseAdmin();
 
     const { data: user } = await admin
@@ -53,24 +88,44 @@ export async function POST(request: NextRequest) {
       .select("role_id")
       .eq("user_id", user.id);
 
-    const { data: permissions } = await admin
+    // Resolve permissions from role
+    const roleIds = (roles ?? []).map((r) => r.role_id);
+    let permissionSlugs: string[] = [];
+
+    if (roleIds.length > 0) {
+      const { data: rolePerms } = await admin
+        .from("role_permissions")
+        .select("permissions!inner(slug)")
+        .in("role_id", roleIds);
+
+      if (rolePerms) {
+        permissionSlugs = (rolePerms as unknown as { permissions: { slug: string } }[]).map(
+          (rp) => rp.permissions.slug,
+        );
+      }
+    }
+
+    // Merge direct user permissions
+    const { data: directPerms } = await admin
       .from("user_permissions")
-      .select("permission_id")
+      .select("permissions!inner(slug)")
       .eq("user_id", user.id);
 
-    const payload = JSON.parse(
-      Buffer.from(auth.session.access_token.split(".")[1] ?? "", "base64").toString(),
-    );
-    const expiresAt = new Date((payload.exp ?? 0) * 1000);
-    const roleIds = (roles ?? []).map((r) => r.role_id);
-    const permIds = (permissions ?? []).map((p) => p.permission_id);
+    if (directPerms) {
+      const directSlugs = (directPerms as unknown as { permissions: { slug: string } }[]).map(
+        (up) => up.permissions.slug,
+      );
+      permissionSlugs = [...new Set([...permissionSlugs, ...directSlugs])];
+    }
+
+    const expiresAt = new Date(auth.expires_at * 1000);
 
     await sessions.create({
       userId: user.id,
       tenantId: user.tenant_id,
       email: user.email,
       roleIds,
-      permissions: permIds,
+      permissions: permissionSlugs,
       expiresAt,
       createdAt: new Date(),
     });
@@ -83,8 +138,8 @@ export async function POST(request: NextRequest) {
         tenantId: user.tenant_id,
       },
       session: {
-        accessToken: auth.session.access_token,
-        refreshToken: auth.session.refresh_token,
+        accessToken: auth.access_token,
+        refreshToken: auth.refresh_token,
         expiresAt: expiresAt.toISOString(),
       },
     };

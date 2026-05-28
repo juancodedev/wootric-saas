@@ -1,0 +1,43 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "wootric-saas-sync-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-22",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "vars": {
+    "LOG_LEVEL": "info",
+    "SYNC_BATCH_SIZE": "100",
+    "SYNC_RATE_LIMIT_RPM": "60",
+    "WOOTRIC_API_URL": "https://api.wootric.com"
+  },
+  "queues": {
+    "consumers": [
+      {
+        "queue": "wootric-sync",
+        "max_batch_size": 10,
+        "max_batch_timeout": 60,
+        "max_retries": 3
+      }
+    ]
+  },
+  "triggers": {
+    "crons": [
+      "*/30 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.5
+  },
+  "env": {
+    "production": {
+      "name": "wootric-saas-sync-worker"
+    },
+    "staging": {
+      "name": "wootric-saas-sync-worker-staging"
+    }
+  }
+}

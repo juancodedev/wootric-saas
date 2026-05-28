@@ -118,21 +118,21 @@ export class RegistrationService {
     await admin.from("usage_quotas").insert([
       {
         tenant_id: tenant.id,
-        quota_key: "exports",
+        quota_key: "max_exports",
         used: 0,
         limit: TRIAL_MAX_EXPORTS,
         reset_at: trialEnd.toISOString(),
       },
       {
         tenant_id: tenant.id,
-        quota_key: "dashboards",
+        quota_key: "max_dashboards",
         used: 0,
         limit: TRIAL_MAX_DASHBOARDS,
         reset_at: trialEnd.toISOString(),
       },
       {
         tenant_id: tenant.id,
-        quota_key: "users",
+        quota_key: "max_users",
         used: 1,
         limit: TRIAL_MAX_USERS,
         reset_at: trialEnd.toISOString(),
@@ -171,11 +171,33 @@ export class RegistrationService {
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    // Get permissions
-    const { data: permissions } = await admin
+    // Resolve permissions from assigned role
+    let permissionSlugs: string[] = [];
+
+    if (adminRole) {
+      const { data: rolePerms } = await admin
+        .from("role_permissions")
+        .select("permissions!inner(slug)")
+        .eq("role_id", adminRole.id);
+
+      if (rolePerms) {
+        permissionSlugs = (rolePerms as unknown as { permissions: { slug: string } }[]).map(
+          (rp) => rp.permissions.slug,
+        );
+      }
+    }
+
+    const { data: directPerms } = await admin
       .from("user_permissions")
-      .select("permission_id")
+      .select("permissions!inner(slug)")
       .eq("user_id", authUser.user.id);
+
+    if (directPerms) {
+      const directSlugs = (directPerms as unknown as { permissions: { slug: string } }[]).map(
+        (up) => up.permissions.slug,
+      );
+      permissionSlugs = [...new Set([...permissionSlugs, ...directSlugs])];
+    }
 
     // Create session
     await sessions.create({
@@ -183,7 +205,7 @@ export class RegistrationService {
       tenantId: tenant.id,
       email: input.email,
       roleIds: adminRole ? [adminRole.id] : [],
-      permissions: (permissions ?? []).map((p) => p.permission_id),
+      permissions: permissionSlugs,
       expiresAt,
       createdAt: new Date(),
     });
@@ -193,7 +215,7 @@ export class RegistrationService {
       tenantId: tenant.id,
       email: input.email,
       roleIds: adminRole ? [adminRole.id] : [],
-      permissions: (permissions ?? []).map((p) => p.permission_id),
+      permissions: permissionSlugs,
       expiresAt,
     };
 

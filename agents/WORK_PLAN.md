@@ -869,27 +869,27 @@ Frontend polling: GET /api/exports/:job_id
 **Tareas:**
 
 #### Export Worker (`workers/export-worker/`)
-- [ ] Worker independiente con su propio `wrangler.jsonc`
-- [ ] Consume de `QUEUE_EXPORTS`
-- [ ] Genera Excel/PDF usando exceljs + @react-pdf
-- [ ] Sube resultados a R2
-- [ ] Actualiza `ExportHistory` en Supabase
-- [ ] Implementa retry policy (3 intentos con backoff)
+- [x] Worker independiente con su propio `wrangler.jsonc`
+- [x] Consume de `QUEUE_EXPORTS`
+- [x] Genera Excel/PDF usando exceljs + @react-pdf
+- [x] Sube resultados a R2
+- [x] Actualiza `ExportHistory` en Supabase
+- [x] Implementa retry policy (3 intentos con backoff)
 
 #### Sync Worker (`workers/sync-worker/`)
-- [ ] Worker independiente para sincronización con Wootric API
-- [ ] Consume de `QUEUE_SYNC`
-- [ ] Trigger por cron (`*/30 * * * *`)
-- [ ] Implementa `WootricApiClient` (auth OAuth2, paginación, rate limiting)
-- [ ] Normaliza data y persiste en Supabase
-- [ ] Actualiza métricas de sync (registros sincronizados, errores)
+- [x] Worker independiente para sincronización con Wootric API
+- [x] Consume de `QUEUE_SYNC`
+- [x] Trigger por cron (`*/30 * * * *`)
+- [x] Implementa `WootricApiClient` (auth Basic, paginación, rate limiting)
+- [x] Normaliza data y persiste en Supabase (tenant_config + quotas)
+- [x] Actualiza métricas de sync (registros sincronizados, errores)
 
 #### Billing Worker (`workers/billing-worker/`)
-- [ ] Worker independiente para webhooks de Stripe
-- [ ] Expone endpoint `POST /api/webhooks/stripe`
-- [ ] Maneja eventos: `checkout.session.completed`, `customer.subscription.*`, `invoice.*`
-- [ ] Actualiza suscripciones en Supabase
-- [ ] Maneja fallos de pago (suspender tenant, enviar email)
+- [x] Worker independiente para webhooks de Stripe
+- [x] Expone endpoint `POST /api/webhooks/stripe`
+- [x] Maneja eventos: `checkout.session.completed`, `customer.subscription.*`, `invoice.*`
+- [x] Actualiza suscripciones en Supabase
+- [x] Maneja fallos de pago (grace period tracking via tenant_config)
 
 **Arquitectura de Workers:**
 

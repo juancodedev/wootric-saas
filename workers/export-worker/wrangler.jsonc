@@ -1,0 +1,43 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "wootric-saas-export-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-22",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "vars": {
+    "LOG_LEVEL": "info",
+    "STORAGE_BUCKET": "wootric-saas-exports",
+    "SUPABASE_URL": ""
+  },
+  "r2_buckets": [
+    {
+      "binding": "R2_EXPORTS",
+      "bucket_name": "wootric-saas-exports"
+    }
+  ],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "wootric-exports",
+        "max_batch_size": 5,
+        "max_batch_timeout": 30,
+        "max_retries": 3
+      }
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.5
+  },
+  "env": {
+    "production": {
+      "name": "wootric-saas-export-worker"
+    },
+    "staging": {
+      "name": "wootric-saas-export-worker-staging"
+    }
+  }
+}
