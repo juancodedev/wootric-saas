@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check bindings (wrangler types)
+        run: |
+          pnpm types
+          git diff --exit-code worker-configuration.d.ts || {
+            echo "❌ worker-configuration.d.ts is out of date. Run 'pnpm types' and commit the changes."
+            exit 1
+          }
+
+      - run: pnpm lint
+
+      - run: pnpm test
+
+      - run: pnpm build:cf
+
+      - name: Validate deploy config
+        run: npx wrangler deploy --dry-run
