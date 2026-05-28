@@ -26,6 +26,15 @@ const GUARDS: [string, RouteGuardConfig][] = [
 
   // ── Quotas ──
   ["/api/quotas", { permission: "admin.manage" }],
+
+  // ── Admin ──
+  ["/api/admin/tenants", { permission: "admin.manage" }],
+  ["/api/admin/plans", { permission: "admin.manage" }],
+
+  // ── Billing ──
+  ["/api/billing/checkout", { permission: "billing.manage" }],
+  ["/api/billing/portal", { permission: "billing.manage" }],
+  ["/api/billing/subscription", { permission: "billing.manage" }],
 ];
 
 export function matchRouteGuard(pathname: string): RouteGuardConfig | null {

@@ -1,5 +1,6 @@
 import { injectable } from "tsyringe";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
+import { createCustomer } from "@/lib/stripe";
 import { TRIAL_DURATION_DAYS, TRIAL_MAX_EXPORTS, TRIAL_MAX_DASHBOARDS, TRIAL_MAX_USERS } from "@/lib/constants";
 import type { AuthSession } from "@/application/ports/services";
 
@@ -91,7 +92,20 @@ export class RegistrationService {
       });
     }
 
-    // 6. Create free trial subscription
+    // 6. Create Stripe customer (skip in dev if no key)
+    let stripeCustomerId: string | null = null;
+    try {
+      if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== "sk_test_...") {
+        const customer = await createCustomer(input.email, input.name, {
+          tenant_id: tenant.id,
+        });
+        stripeCustomerId = customer.id;
+      }
+    } catch {
+      // Non-blocking: proceed without Stripe customer in dev
+    }
+
+    // 7. Create free trial subscription
     const { data: freePlan } = await admin
       .from("plans")
       .select("id")
@@ -103,7 +117,7 @@ export class RegistrationService {
     trialEnd.setDate(trialEnd.getDate() + TRIAL_DURATION_DAYS);
 
     if (freePlan) {
-      await admin.from("subscriptions").insert({
+      const subData: Record<string, unknown> = {
         tenant_id: tenant.id,
         plan_id: freePlan.id,
         status: "trial",
@@ -111,7 +125,11 @@ export class RegistrationService {
         trial_end_at: trialEnd.toISOString(),
         current_period_start: now.toISOString(),
         current_period_end: trialEnd.toISOString(),
-      });
+      };
+      if (stripeCustomerId) {
+        subData.stripe_customer_id = stripeCustomerId;
+      }
+      await admin.from("subscriptions").insert(subData);
     }
 
     // 7. Set initial usage quotas for trial

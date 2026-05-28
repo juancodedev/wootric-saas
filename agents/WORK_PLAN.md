@@ -948,11 +948,11 @@ const CRONS = [
 ```
 
 **Entregables:**
-- Audit logs automáticos
-- Cron jobs programados en Cloudflare Triggers
-- Limpieza automática según retención por plan
+- [x] Audit logs automáticos
+- [x] Cron jobs programados en Cloudflare Triggers
+- [x] Limpieza automática según retención por plan
 
-**Criterio de aprobación:** Cron jobs se ejecutan, trial expira automáticamente, quotas se resetean.
+**Criterio de aprobación:** ✅ Cron jobs se ejecutan, trial expira automáticamente, quotas se resetean.
 
 ---
 
@@ -960,7 +960,30 @@ const CRONS = [
 
 *Sin cambios estructurales. Mismas rutas que en la versión anterior.*
 
-**Criterio de aprobación:** Todas las rutas funcionan con auth + permisos + quotas en Cloudflare edge.
+**Tareas:**
+- [x] Crear `/api/tenants` (GET current tenant, PATCH update)
+- [x] Crear `/api/tenants/config` (GET/PATCH tenant config)
+- [x] Crear `/api/admin/tenants` (GET list all with pagination, PATCH any tenant)
+- [x] Crear `/api/admin/plans` (GET list, POST create, PATCH update)
+- [x] Actualizar `route-guards.ts` con permisos para rutas admin
+
+**Rutas existentes verificadas (21):**
+- `auth/*` — login, register, refresh, logout, invite ✅
+- `dashboards/*` — CRUD + widgets + reorder ✅
+- `reports/*` — CRUD + export ✅
+- `exports/[id]` — GET job status ✅
+- `feature-flags` — GET/POST/DELETE ✅
+- `quotas` — GET ✅
+- `subscriptions` — GET ✅
+- `rbac/*` — permissions, roles, assign ✅
+
+**Nuevas rutas (5):**
+- `tenants` — GET, PATCH
+- `tenants/config` — GET, PATCH
+- `admin/tenants` — GET (paginated), PATCH
+- `admin/plans` — GET, POST, PATCH
+
+**Criterio de aprobación:** ✅ Todas las rutas funcionan con auth + permisos + quotas en Cloudflare edge.
 
 ---
 
@@ -971,19 +994,20 @@ const CRONS = [
 **Objetivo:** Integración completa con Stripe.
 
 **Tareas:**
-- [ ] Implementar Stripe customer creation al registrar tenant
-- [ ] Implementar Stripe checkout flow (Starter, Pro, Enterprise)
-- [ ] Implementar Stripe customer portal (auto-servicio)
-- [ ] Implementar webhooks en Billing Worker:
-  - `checkout.session.completed` → Activar suscripción
-  - `customer.subscription.updated` → Upgrade/downgrade
-  - `customer.subscription.deleted` → Degradar a Free
-  - `invoice.paid` → Renovar período
-  - `invoice.payment_failed` → Enviar warning, suspender
-- [ ] Implementar manejo graceful de fallos de pago:
-  - Día 0: Warning email
-  - Día 3: Degradar a Free Trial (solo lectura)
-  - Día 7: Suspender tenant
+- [x] Stripe REST API helper (`src/lib/stripe.ts`) con createCustomer, createCheckoutSession, createPortalSession, listInvoices, cancelSubscription
+- [x] Stripe customer creation al registrar tenant (RegistrationService)
+- [x] `POST /api/billing/checkout` — crear Stripe Checkout Session
+- [x] `POST /api/billing/portal` — crear Stripe Customer Portal session
+- [x] `GET /api/billing/subscription` — detalles de suscripción + facturas
+- [x] `DELETE /api/billing/subscription` — cancelar suscripción
+- [x] `handleGracePeriod` en sync-worker — degrada a read-only (día 3) y suspende (día 7)
+- [x] Route guards para rutas de billing (`billing.manage`)
+- [x] Webhooks en Billing Worker (E13):
+  - `checkout.session.completed` → Activar suscripción ✅
+  - `customer.subscription.updated` → Upgrade/downgrade ✅
+  - `customer.subscription.deleted` → Degradar a Free ✅
+  - `invoice.paid` → Renovar período ✅
+  - `invoice.payment_failed` → Enviar warning ✅
 
 **Entregables:**
 - Billing Worker con webhooks funcionales

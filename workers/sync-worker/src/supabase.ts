@@ -195,5 +195,33 @@ export function createSupabaseClient(url: string, key: string) {
       const deleted: unknown[] = await res.json();
       return deleted.length;
     },
+
+    async findPastDueSubscriptions(): Promise<Array<{ id: string; tenant_id: string; updated_at: string }>> {
+      const res = await fetch(
+        `${url}/rest/v1/subscriptions?select=id,tenant_id,updated_at&status=eq.past_due`,
+        {
+          headers: { Authorization: authHeader, apikey: apikeyHeader },
+        },
+      );
+      if (!res.ok) return [];
+      return res.json();
+    },
+
+    async updateTenantStatus(tenantId: string, status: string): Promise<void> {
+      const res = await fetch(`${url}/rest/v1/tenants?id=eq.${tenantId}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: authHeader,
+          apikey: apikeyHeader,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Failed to update tenant status: ${res.status} ${body}`);
+      }
+    },
   };
 }

@@ -213,6 +213,42 @@ export default {
     }
   },
 
+  async handleGracePeriod(env: Env): Promise<void> {
+    const supabase = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+    log("info", "Checking grace period for past-due subscriptions");
+
+    try {
+      const pastDue = await supabase.findPastDueSubscriptions();
+      if (pastDue.length === 0) {
+        log("info", "No past-due subscriptions found");
+        return;
+      }
+
+      const now = Date.now();
+      const DAY_MS = 86400000;
+
+      for (const sub of pastDue) {
+        const updatedAt = new Date(sub.updated_at).getTime();
+        const daysPastDue = Math.floor((now - updatedAt) / DAY_MS);
+
+        if (daysPastDue >= 7) {
+          await supabase.expireSubscriptions([sub.id]);
+          await supabase.updateTenantStatus(sub.tenant_id, "suspended");
+          log("info", `Suspended tenant ${sub.tenant_id} after ${daysPastDue} days past due`);
+        } else if (daysPastDue >= 3) {
+          await supabase.upsertConfig(sub.tenant_id, "access_level", "read_only");
+          log("info", `Degraded tenant ${sub.tenant_id} to read-only (${daysPastDue} days past due)`);
+        } else {
+          log("info", `Tenant ${sub.tenant_id} is ${daysPastDue} days past due — warning pending`);
+        }
+      }
+
+      log("info", `Processed ${pastDue.length} past-due subscriptions`);
+    } catch (error) {
+      log("error", `Grace period check failed: ${error}`);
+    }
+  },
+
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     const cron = controller.cron;
 
@@ -226,6 +262,7 @@ export default {
 
         case "0 0 * * *":
           await this.checkTrialExpirations(env);
+          await this.handleGracePeriod(env);
           break;
 
         case "0 1 * * *":
