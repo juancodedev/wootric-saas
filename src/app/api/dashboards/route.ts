@@ -3,10 +3,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { DashboardService } from "@/application/services/DashboardService";
 import type { CreateDashboardRequest } from "@/presentation/dtos/dashboard";
+import { getAuthContextFromToken } from "@/lib/auth/context";
+
+function getTenantId(request: NextRequest): string | null {
+  return request.headers.get("x-tenant-id") ?? getAuthContextFromToken(request).tenantId;
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const tenantId = request.headers.get("x-tenant-id");
+    const tenantId = getTenantId(request);
     if (!tenantId) {
       return NextResponse.json({ error: "No tenant context" }, { status: 401 });
     }
@@ -45,8 +50,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const tenantId = request.headers.get("x-tenant-id");
-    const userId = request.headers.get("x-user-id");
+    const auth = getAuthContextFromToken(request);
+    const tenantId = request.headers.get("x-tenant-id") ?? auth.tenantId;
+    const userId = request.headers.get("x-user-id") ?? auth.userId;
     if (!tenantId || !userId) {
       return NextResponse.json({ error: "No tenant/user context" }, { status: 401 });
     }

@@ -18,6 +18,10 @@ type StoredSession = {
   createdAt: string;
 };
 
+type DebugInfo = Record<string, unknown>;
+
+let debugInfo: DebugInfo = {};
+
 type CloudflareEnv = {
   KV_SESSIONS: KVNamespace;
   KV_RATE_LIMIT: KVNamespace;
@@ -67,26 +71,130 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 async function validateSession(
   token: string,
   bindings: CloudflareEnv,
-): Promise<StoredSession | null> {
+): Promise<{ session: StoredSession | null; reason?: string }> {
   const payload = decodeJwtPayload(token);
-  if (!payload) return null;
+  if (!payload) {
+    return { session: null, reason: "failed to decode JWT payload" };
+  }
   const userId = payload.sub as string | undefined;
-  if (!userId) return null;
+  if (!userId) {
+    return { session: null, reason: "no sub claim in JWT" };
+  }
   const exp = payload.exp as number | undefined;
-  if (!exp || exp < Math.floor(Date.now() / 1000)) return null;
+  if (!exp || exp < Math.floor(Date.now() / 1000)) {
+    return { session: null, reason: `token expired (exp: ${exp})` };
+  }
 
+  // Try KV session first
   const prefix = `session:${userId}:`;
-  const keys = await bindings.KV_SESSIONS.list({ prefix });
-  if (keys.keys.length === 0) return null;
+  let keysCount = 0;
+  try {
+    const keys = await bindings.KV_SESSIONS.list({ prefix });
+    keysCount = keys.keys.length;
+    if (keys.keys.length > 0) {
+      const value = await bindings.KV_SESSIONS.get(
+        keys.keys[keys.keys.length - 1]!.name,
+      );
+      if (value) {
+        const session = JSON.parse(value) as StoredSession;
+        if (new Date(session.expiresAt) >= new Date()) {
+          return { session };
+        }
+      }
+    }
+  } catch {
+    // KV read failed, continue to fallback
+  }
 
-  const value = await bindings.KV_SESSIONS.get(
-    keys.keys[keys.keys.length - 1]!.name,
-  );
-  if (!value) return null;
+  // Fallback: extract session from JWT + Supabase
+  const userMeta = payload.user_metadata as Record<string, unknown> | undefined;
+  const email = payload.email as string | undefined;
+  const tenantIdFromJwt = userMeta?.tenant_id as string | undefined;
+  const iss = payload.iss as string | undefined;
 
-  const session = JSON.parse(value) as StoredSession;
-  if (new Date(session.expiresAt) < new Date()) return null;
-  return session;
+  try {
+    // Get Supabase URL from JWT issuer or env
+    const supabaseUrl = iss?.replace("/auth/v1", "") || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const env = bindings as Record<string, unknown>;
+    const serviceKey = (env.SUPABASE_SERVICE_ROLE_KEY as string) || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+    // Debug info as response headers (set later)
+    debugInfo = {
+      keysCount,
+      hasMeta: !!userMeta,
+      tenantIdFromJwt: tenantIdFromJwt ?? "none",
+      supabaseUrl: supabaseUrl ? "ok" : "missing",
+      serviceKey: serviceKey ? "ok" : "missing",
+      userId,
+      email: email ?? "none",
+      iss: iss ?? "none",
+    };
+
+    if (!supabaseUrl || !serviceKey) {
+      return { session: null, reason: `missing Supabase credentials (url: ${!!supabaseUrl}, key: ${!!serviceKey})` };
+    }
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const admin = createClient(supabaseUrl, serviceKey);
+
+    const { data: user, error: userErr } = await admin
+      .from("users")
+      .select("id, tenant_id, email, name")
+      .eq("id", userId)
+      .single();
+
+    if (userErr || !user) {
+      return { session: null, reason: `user query failed: ${userErr?.message ?? "not found"}` };
+    }
+
+    const { data: roles } = await admin
+      .from("user_roles")
+      .select("role_id")
+      .eq("user_id", userId);
+
+    const roleIds = (roles ?? []).map((r) => r.role_id);
+    let permissionSlugs: string[] = [];
+
+    if (roleIds.length > 0) {
+      const { data: rolePerms } = await admin
+        .from("role_permissions")
+        .select("permissions!inner(slug)")
+        .in("role_id", roleIds);
+      if (rolePerms) {
+        permissionSlugs = (rolePerms as unknown as { permissions: { slug: string } }[]).map(
+          (rp) => rp.permissions.slug,
+        );
+      }
+    }
+
+    const { data: directPerms } = await admin
+      .from("user_permissions")
+      .select("permissions!inner(slug)")
+      .eq("user_id", userId);
+    if (directPerms) {
+      const directSlugs = (directPerms as unknown as { permissions: { slug: string } }[]).map(
+        (up) => up.permissions.slug,
+      );
+      permissionSlugs = [...new Set([...permissionSlugs, ...directSlugs])];
+    }
+
+    const expiresAt = payload.exp ? new Date((payload.exp as number) * 1000) : new Date(Date.now() + 3600000);
+
+    return {
+      session: {
+        id: "fallback",
+        userId: user.id,
+        tenantId: user.tenant_id,
+        email: user.email,
+        roleIds,
+        permissions: permissionSlugs,
+        expiresAt: expiresAt.toISOString(),
+        createdAt: new Date().toISOString(),
+      },
+    };
+  } catch (err) {
+    return { session: null, reason: `fallback error: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
 
 async function checkRateLimit(
@@ -270,15 +378,18 @@ async function auditLog(
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
-  const response = NextResponse.next();
+  let response = NextResponse.next();
 
   // ── Step 1: Secure Headers ──
   setSecureHeaders(response);
 
   // ── Step 2: Skip non-API & public routes ──
   if (!isApiRoute(pathname) || isPublicRoute(pathname)) {
+    response.headers.set("X-Middleware", "bypassed");
     return response;
   }
+
+  response.headers.set("X-Middleware", "active");
 
   try {
     const bindings = await getBindings();
@@ -308,6 +419,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
     // ── Step 5: Authentication ──
     const token = extractToken(request);
+
     if (!token) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -315,13 +427,23 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const session = await validateSession(token, bindings);
+    const { session, reason } = await validateSession(token, bindings);
+
+    // Set debug headers for local dev
+    for (const [key, val] of Object.entries(debugInfo)) {
+      response.headers.set(`X-Debug-${key}`, String(val));
+    }
+
     if (!session) {
+      console.error("[middleware] Session validation failed:", reason);
+      response.headers.set("X-Debug-Reason", reason ?? "unknown");
       return NextResponse.json(
-        { error: "Invalid or expired session" },
+        { error: "Invalid or expired session", detail: reason },
         { status: 401, headers: response.headers },
       );
     }
+
+    console.log("[middleware] Session OK:", session.userId, session.tenantId);
 
     // ── Step 6: Tenant Resolution ──
     const host = request.headers.get("host") || "";
@@ -469,6 +591,15 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     }
 
     // ── Set context headers ──
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("X-User-ID", session.userId);
+    requestHeaders.set("X-Tenant-ID", tenantId);
+    requestHeaders.set("X-User-Email", session.email);
+    requestHeaders.set("X-Session-ID", session.id);
+    requestHeaders.set("X-User-Roles", session.roleIds.join(","));
+    requestHeaders.set("X-User-Permissions", session.permissions.join(","));
+
+    response = NextResponse.next({ request: { headers: requestHeaders } });
     response.headers.set("X-User-ID", session.userId);
     response.headers.set("X-Tenant-ID", tenantId);
     response.headers.set("X-User-Email", session.email);

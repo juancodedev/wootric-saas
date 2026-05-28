@@ -1,54 +1,14 @@
 import "reflect-metadata";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { SessionService } from "@/infrastructure/auth/SessionService";
-import type { LoginRequestDto, AuthResponse } from "@/presentation/dtos/auth";
-
-interface SupabaseAuthResponse {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-  expires_at: number;
-  token_type: string;
-  user: {
-    id: string;
-    email: string;
-  };
-}
-
-async function signInWithPassword(
-  email: string,
-  password: string,
-): Promise<SupabaseAuthResponse> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) {
-    throw new Error("Supabase URL and service role key are required");
-  }
-
-  const res = await fetch(`${url}/auth/v1/token?grant_type=password`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({ email, password }),
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((body as { error: string }).error ?? "Invalid credentials");
-  }
-
-  return res.json();
-}
+import type { AuthResponse } from "@/presentation/dtos/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as LoginRequestDto;
+    const body = (await request.json()) as { email?: string; password?: string };
 
     if (!body.email || !body.password) {
       return NextResponse.json(
@@ -57,12 +17,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let auth: SupabaseAuthResponse;
-    try {
-      auth = await signInWithPassword(body.email, body.password);
-    } catch (err) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+    if (!url || !anonKey) {
       return NextResponse.json(
-        { error: err instanceof Error ? err.message : "Invalid credentials" },
+        { error: "Supabase URL and publishable key are required" },
+        { status: 500 },
+      );
+    }
+
+    const supabase = createClient(url, anonKey);
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: body.email,
+      password: body.password,
+    });
+
+    if (authError || !authData.session) {
+      console.error("[login] Supabase auth error:", authError);
+      return NextResponse.json(
+        { error: authError?.message ?? "Invalid credentials" },
         { status: 401 },
       );
     }
@@ -73,7 +47,7 @@ export async function POST(request: NextRequest) {
     const { data: user } = await admin
       .from("users")
       .select("id, tenant_id, email, name")
-      .eq("email", body.email)
+      .eq("id", authData.user.id)
       .single();
 
     if (!user) {
@@ -88,7 +62,6 @@ export async function POST(request: NextRequest) {
       .select("role_id")
       .eq("user_id", user.id);
 
-    // Resolve permissions from role
     const roleIds = (roles ?? []).map((r) => r.role_id);
     let permissionSlugs: string[] = [];
 
@@ -105,7 +78,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Merge direct user permissions
     const { data: directPerms } = await admin
       .from("user_permissions")
       .select("permissions!inner(slug)")
@@ -118,7 +90,7 @@ export async function POST(request: NextRequest) {
       permissionSlugs = [...new Set([...permissionSlugs, ...directSlugs])];
     }
 
-    const expiresAt = new Date(auth.expires_at * 1000);
+    const expiresAt = new Date((authData.session.expires_at ?? 0) * 1000);
 
     await sessions.create({
       userId: user.id,
@@ -138,8 +110,8 @@ export async function POST(request: NextRequest) {
         tenantId: user.tenant_id,
       },
       session: {
-        accessToken: auth.access_token,
-        refreshToken: auth.refresh_token,
+        accessToken: authData.session.access_token,
+        refreshToken: authData.session.refresh_token,
         expiresAt: expiresAt.toISOString(),
       },
     };
