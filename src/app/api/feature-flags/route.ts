@@ -1,4 +1,3 @@
-import "reflect-metadata";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { FeatureFlagService } from "@/application/services/FeatureFlagService";
@@ -17,20 +16,23 @@ export async function GET(request: NextRequest) {
     const admin = createSupabaseAdmin();
     const { data: allFlags } = await admin
       .from("feature_flags")
-      .select("*")
+      .select("id, key, name, description, is_public, enabled")
       .order("key");
 
-    const flags = await Promise.all(
-      (allFlags ?? []).map(async (f) => ({
-        id: f.id,
-        key: f.key,
-        name: f.name,
-        description: f.description,
-        isPublic: f.is_public,
-        globalEnabled: f.enabled,
-        enabled: await ff.isEnabled(f.key, tenantId),
-      })),
-    );
+    // Use batch method instead of per-flag isEnabled() calls
+    const enabledKeys = await ff.getEnabledFlags(tenantId);
+
+    const enabledSet = new Set(enabledKeys);
+
+    const flags = (allFlags ?? []).map((f) => ({
+      id: f.id,
+      key: f.key,
+      name: f.name,
+      description: f.description,
+      isPublic: f.is_public,
+      globalEnabled: f.enabled,
+      enabled: enabledSet.has(f.key),
+    }));
 
     return NextResponse.json({ flags });
   } catch (err) {

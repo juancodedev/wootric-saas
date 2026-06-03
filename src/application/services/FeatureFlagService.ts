@@ -58,16 +58,67 @@ export class FeatureFlagService implements IFeatureFlagService {
   async getEnabledFlags(tenantId?: string): Promise<string[]> {
     const admin = createSupabaseAdmin();
 
+    // 1. Fetch all flags in one query
     const { data: allFlags } = await admin
       .from("feature_flags")
-      .select("key, enabled");
+      .select("id, key, enabled");
 
     if (!allFlags) return [];
 
+    const flagIds = allFlags.map((f) => f.id);
+
+    // 2. Batch-fetch all overrides for this tenant in one query
+    let overridesMap: Record<string, boolean> = {};
+    if (tenantId && flagIds.length > 0) {
+      const { data: overrides } = await admin
+        .from("feature_flag_overrides")
+        .select("feature_flag_id, enabled")
+        .eq("tenant_id", tenantId)
+        .in("feature_flag_id", flagIds);
+
+      if (overrides) {
+        for (const o of overrides) {
+          overridesMap[o.feature_flag_id] = o.enabled;
+        }
+      }
+    }
+
+    // 3. Fetch subscription + plan features once (if tenant provided)
+    let planFeaturesMap: Record<string, boolean> = {};
+    if (tenantId) {
+      const subscription = await this.subs.getCurrentSubscription(tenantId);
+      if (subscription) {
+        const { data: planFeatures } = await admin
+          .from("plan_features")
+          .select("feature_key, enabled")
+          .eq("plan_id", subscription.planId);
+
+        if (planFeatures) {
+          for (const pf of planFeatures) {
+            planFeaturesMap[pf.feature_key] = pf.enabled;
+          }
+        }
+      }
+    }
+
+    // 4. Resolve everything in-memory
     const results: string[] = [];
 
     for (const flag of allFlags) {
-      if (await this.isEnabled(flag.key, tenantId)) {
+      // Priority 1: tenant override
+      if (tenantId && flag.id in overridesMap) {
+        if (overridesMap[flag.id]) results.push(flag.key);
+        continue;
+      }
+
+      // Priority 2: plan feature
+      if (tenantId && flag.key in planFeaturesMap) {
+        if (planFeaturesMap[flag.key]) results.push(flag.key);
+        continue;
+      }
+
+      // Priority 3: global flag
+      if (flag.enabled) {
         results.push(flag.key);
       }
     }
