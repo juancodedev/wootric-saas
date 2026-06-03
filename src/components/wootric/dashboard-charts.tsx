@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import type { WootricResponseItem } from "@/application/services/WootricService";
 import {
   calculateNps,
@@ -8,10 +9,32 @@ import {
   calculateVolumeTrend,
 } from "@/lib/wootric/nps-utils";
 import { NpsScoreCard } from "./nps-score-card";
-import { ScoreDistributionChart } from "./score-distribution-chart";
-import { NpsDonutChart } from "./nps-donut-chart";
-import { TrendChart } from "./trend-chart";
-import { VolumeChart } from "./volume-chart";
+import dynamic from "next/dynamic";
+
+const ScoreDistributionChart = dynamic(
+  () => import("./score-distribution-chart").then((m) => m.ScoreDistributionChart),
+  { ssr: false },
+);
+const NpsDonutChart = dynamic(
+  () => import("./nps-donut-chart").then((m) => m.NpsDonutChart),
+  { ssr: false },
+);
+const TrendChart = dynamic(
+  () => import("./trend-chart").then((m) => m.TrendChart),
+  { ssr: false },
+);
+const VolumeChart = dynamic(
+  () => import("./volume-chart").then((m) => m.VolumeChart),
+  { ssr: false },
+);
+
+function ChartFallback() {
+  return (
+    <div className="flex items-center justify-center rounded-xl border bg-white p-5 shadow-sm h-[220px]">
+      <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-blue-500" />
+    </div>
+  );
+}
 
 type Props = {
   responses: WootricResponseItem[];
@@ -35,11 +58,19 @@ export function DashboardCharts({ responses }: Props) {
     <div className="space-y-6">
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <NpsScoreCard {...nps} />
-        <ScoreDistributionChart data={distribution} />
-        <NpsDonutChart promoters={nps.promoters} passives={nps.passives} detractors={nps.detractors} />
-        <VolumeChart data={volume} />
+        <Suspense fallback={<ChartFallback />}>
+          <ScoreDistributionChart data={distribution} />
+        </Suspense>
+        <Suspense fallback={<ChartFallback />}>
+          <NpsDonutChart promoters={nps.promoters} passives={nps.passives} detractors={nps.detractors} />
+        </Suspense>
+        <Suspense fallback={<ChartFallback />}>
+          <VolumeChart data={volume} />
+        </Suspense>
       </div>
-      <TrendChart data={trend} />
+      <Suspense fallback={<ChartFallback />}>
+        <TrendChart data={trend} />
+      </Suspense>
     </div>
   );
 }
