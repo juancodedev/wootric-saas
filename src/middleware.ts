@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import type { KVNamespace } from "@cloudflare/workers-types";
 import { matchRouteGuard } from "@/infrastructure/middleware/route-guards";
 
 const RATE_LIMIT_WINDOW = 60;
