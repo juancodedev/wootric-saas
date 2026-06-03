@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "./database.types";
 
-let cachedAdmin: ReturnType<typeof createClient> | null = null;
+type SupabaseClient = ReturnType<typeof createClient<Database>>;
+
+let cachedAdmin: SupabaseClient | null = null;
 
 /**
  * Create or return a cached Supabase admin client.
@@ -10,7 +13,7 @@ let cachedAdmin: ReturnType<typeof createClient> | null = null;
  * request (e.g., middleware calling resolveTenantId, checkSubscription, etc.)
  * without leaking state between requests.
  */
-export function createSupabaseAdmin() {
+export function createSupabaseAdmin(): SupabaseClient {
   if (cachedAdmin) return cachedAdmin;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,6 +23,6 @@ export function createSupabaseAdmin() {
     throw new Error("Supabase URL and service role key are required");
   }
 
-  cachedAdmin = createClient(url, key);
+  cachedAdmin = createClient<Database>(url, key);
   return cachedAdmin;
 }

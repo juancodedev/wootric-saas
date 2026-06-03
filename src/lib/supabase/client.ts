@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "./database.types";
 
 export function createSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -8,5 +9,5 @@ export function createSupabaseClient() {
     throw new Error("Supabase URL and publishable key are required");
   }
 
-  return createClient(url, key);
+  return createClient<Database>(url, key);
 }
