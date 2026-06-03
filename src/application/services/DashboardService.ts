@@ -33,7 +33,7 @@ export class DashboardService {
     const admin = createSupabaseAdmin();
     const { data } = await admin
       .from("dashboards")
-      .select("*")
+      .select("id, tenant_id, user_id, name, description, visibility, layout, is_default, created_at, updated_at, deleted_at")
       .eq("id", id)
       .maybeSingle();
     if (!data) return null;
@@ -47,7 +47,7 @@ export class DashboardService {
     const admin = createSupabaseAdmin();
     let query = admin
       .from("dashboards")
-      .select("*")
+      .select("id, tenant_id, user_id, name, description, visibility, layout, is_default, created_at, updated_at, deleted_at")
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false });
 
@@ -78,7 +78,7 @@ export class DashboardService {
         visibility: params.visibility ?? "private",
         layout: params.layout ?? null,
       })
-      .select("*")
+      .select("id, tenant_id, user_id, name, description, visibility, layout, is_default, created_at, updated_at, deleted_at")
       .single();
 
     if (error || !data) {
@@ -109,7 +109,7 @@ export class DashboardService {
       .from("dashboards")
       .update(updates)
       .eq("id", id)
-      .select("*")
+      .select("id, tenant_id, user_id, name, description, visibility, layout, is_default, created_at, updated_at, deleted_at")
       .single();
 
     if (error || !data) {
@@ -155,7 +155,7 @@ export class DashboardService {
     const admin = createSupabaseAdmin();
     const { count } = await admin
       .from("dashboards")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .eq("tenant_id", tenantId)
       .is("deleted_at", null);
 
@@ -166,7 +166,7 @@ export class DashboardService {
     const admin = createSupabaseAdmin();
     const { data } = await admin
       .from("dashboard_widgets")
-      .select("*")
+      .select("id, dashboard_id, widget_type, title, config, position, sort_order, created_at, updated_at")
       .eq("dashboard_id", dashboardId)
       .order("sort_order", { ascending: true });
 
@@ -192,7 +192,7 @@ export class DashboardService {
         position: params.position ?? null,
         sort_order: params.sortOrder ?? 0,
       })
-      .select("*")
+      .select("id, dashboard_id, widget_type, title, config, position, sort_order, created_at, updated_at")
       .single();
 
     if (error || !data) {
@@ -225,7 +225,7 @@ export class DashboardService {
       .from("dashboard_widgets")
       .update(updates)
       .eq("id", id)
-      .select("*")
+      .select("id, dashboard_id, widget_type, title, config, position, sort_order, created_at, updated_at")
       .single();
 
     if (error || !data) {

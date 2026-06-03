@@ -77,7 +77,10 @@ export async function POST(request: NextRequest) {
 
     let query = admin
       .from("wootric_responses")
-      .select("*", { count: "exact" })
+      .select(
+        "wootric_id, survey_id, email, score, text, wootric_created_at, wootric_updated_at, origin_url, ip_address, tags, end_user_properties",
+        { count: "exact" },
+      )
       .eq("tenant_id", tenantId);
 
     if (body.startDate) {

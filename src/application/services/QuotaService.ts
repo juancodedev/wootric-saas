@@ -14,7 +14,7 @@ export class QuotaService {
 
     const { data } = await admin
       .from("usage_quotas")
-      .select("*")
+      .select("quota_key, used, limit, reset_at")
       .eq("tenant_id", tenantId);
 
     return (data ?? []).map((q) => ({
@@ -34,7 +34,7 @@ export class QuotaService {
 
     const { data } = await admin
       .from("usage_quotas")
-      .select("*")
+      .select("id, used, limit")
       .eq("tenant_id", tenantId)
       .eq("quota_key", quotaKey)
       .single();

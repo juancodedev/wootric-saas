@@ -20,7 +20,7 @@ export class ReportService {
     const admin = createSupabaseAdmin();
     const { data } = await admin
       .from("reports")
-      .select("*")
+      .select("id, tenant_id, user_id, name, description, report_type, config, is_scheduled, created_at, updated_at, deleted_at")
       .eq("id", id)
       .maybeSingle();
     return data ? this.toEntity(data as ReportRow) : null;
@@ -33,7 +33,7 @@ export class ReportService {
     const admin = createSupabaseAdmin();
     let query = admin
       .from("reports")
-      .select("*")
+      .select("id, tenant_id, user_id, name, description, report_type, config, is_scheduled, created_at, updated_at, deleted_at")
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false });
 
@@ -64,7 +64,7 @@ export class ReportService {
         report_type: params.reportType,
         config: params.config ?? {},
       })
-      .select("*")
+      .select("id, tenant_id, user_id, name, description, report_type, config, is_scheduled, created_at, updated_at, deleted_at")
       .single();
 
     if (error || !data) {
@@ -92,7 +92,7 @@ export class ReportService {
       .from("reports")
       .update(updates)
       .eq("id", id)
-      .select("*")
+      .select("id, tenant_id, user_id, name, description, report_type, config, is_scheduled, created_at, updated_at, deleted_at")
       .single();
 
     if (error || !data) {
@@ -115,7 +115,7 @@ export class ReportService {
     const admin = createSupabaseAdmin();
     const { count } = await admin
       .from("reports")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .eq("tenant_id", tenantId)
       .is("deleted_at", null);
     return count ?? 0;
