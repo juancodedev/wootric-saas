@@ -1,13 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import type { WootricResponseItem } from "@/application/services/WootricService";
-import {
-  calculateNps,
-  calculateDistribution,
-  calculateDailyTrend,
-  calculateVolumeTrend,
-} from "@/lib/wootric/nps-utils";
+import type { NpsCalculation, ScoreDistribution, DailyTrend } from "@/lib/wootric/nps-utils";
 import { NpsScoreCard } from "./nps-score-card";
 import dynamic from "next/dynamic";
 
@@ -36,12 +30,20 @@ function ChartFallback() {
   );
 }
 
-type Props = {
-  responses: WootricResponseItem[];
+export type AnalyticsData = {
+  nps: NpsCalculation;
+  distribution: ScoreDistribution;
+  trend: DailyTrend;
+  volume: { date: string; count: number }[];
+  totalCount: number;
 };
 
-export function DashboardCharts({ responses }: Props) {
-  if (responses.length === 0) {
+type Props = {
+  data: AnalyticsData;
+};
+
+export function DashboardCharts({ data }: Props) {
+  if (data.totalCount === 0) {
     return (
       <div className="rounded-lg border-2 border-dashed border-zinc-200 p-12 text-center text-zinc-500">
         No data to chart. Fetch responses first.
@@ -49,10 +51,7 @@ export function DashboardCharts({ responses }: Props) {
     );
   }
 
-  const nps = calculateNps(responses);
-  const distribution = calculateDistribution(responses);
-  const trend = calculateDailyTrend(responses);
-  const volume = calculateVolumeTrend(responses);
+  const { nps, distribution, trend, volume } = data;
 
   return (
     <div className="space-y-6">

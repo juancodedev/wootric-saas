@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { apiFetch } from "@/lib/auth-client";
 import { ExportModal } from "@/components/wootric/export-modal";
-import { DashboardCharts } from "@/components/wootric/dashboard-charts";
+import { DashboardCharts, type AnalyticsData } from "@/components/wootric/dashboard-charts";
 import type { WootricResponseItem } from "@/application/services/WootricService";
 
 type WootricResponse = WootricResponseItem;
@@ -70,6 +70,16 @@ async function fetchFromWootric(startDate: string, endDate: string): Promise<Fet
   });
 }
 
+async function queryAnalytics(startDate: string, endDate: string): Promise<AnalyticsData> {
+  return apiFetch<AnalyticsData>("/api/wootric/analytics", {
+    method: "POST",
+    body: JSON.stringify({
+      startDate: new Date(startDate).toISOString(),
+      endDate: new Date(endDate + "T23:59:59").toISOString(),
+    }),
+  });
+}
+
 export default function DataExplorerPage() {
   const [startDate, setStartDate] = useState(thirtyDaysAgo());
   const [endDate, setEndDate] = useState(today());
@@ -82,8 +92,8 @@ export default function DataExplorerPage() {
   const [notConfigured, setNotConfigured] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [tab, setTab] = useState<"data" | "analytics">("data");
-  const [allResponses, setAllResponses] = useState<WootricResponse[]>([]);
-  const [loadingAll, setLoadingAll] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [hasLocalData, setHasLocalData] = useState(false);
 
   // Load local data on mount and when date range or pagination changes
@@ -125,15 +135,15 @@ export default function DataExplorerPage() {
     }
   }, [startDate, endDate, perPage]);
 
-  const loadAllForAnalytics = useCallback(async () => {
-    setLoadingAll(true);
+  const loadAnalytics = useCallback(async () => {
+    setLoadingAnalytics(true);
     try {
-      const local = await queryLocal(startDate, endDate, 1, 9999);
-      setAllResponses(local.data);
+      const analytics = await queryAnalytics(startDate, endDate);
+      setAnalyticsData(analytics);
     } catch {
       // ignore
     } finally {
-      setLoadingAll(false);
+      setLoadingAnalytics(false);
     }
   }, [startDate, endDate]);
 
@@ -227,8 +237,8 @@ export default function DataExplorerPage() {
         <button
           onClick={() => {
             setTab("analytics");
-            if (allResponses.length === 0 && !loadingAll) {
-              loadAllForAnalytics();
+            if (analyticsData === null && !loadingAnalytics) {
+              loadAnalytics();
             }
           }}
           className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
@@ -330,22 +340,22 @@ export default function DataExplorerPage() {
       {/* Analytics Tab */}
       {tab === "analytics" && (
         <>
-          {loadingAll && (
+          {loadingAnalytics && (
             <div className="flex items-center justify-center py-12">
               <div className="flex flex-col items-center gap-3">
                 <div className="size-8 animate-spin rounded-full border-4 border-zinc-200 border-t-blue-600" />
-                <p className="text-sm text-zinc-500">Cargando datos locales...</p>
+                <p className="text-sm text-zinc-500">Cargando datos de analytics...</p>
               </div>
             </div>
           )}
 
-          {!loadingAll && allResponses.length > 0 && (
+          {!loadingAnalytics && analyticsData && analyticsData.totalCount > 0 && (
             <div className="flex items-center justify-between">
               <p className="text-sm text-zinc-500">
-                Analizando {allResponses.length} respuestas del {startDate} al {endDate}
+                Analizando {analyticsData.totalCount} respuestas del {startDate} al {endDate}
               </p>
               <button
-                onClick={loadAllForAnalytics}
+                onClick={loadAnalytics}
                 className="rounded-lg border px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50"
               >
                 Recargar
@@ -353,11 +363,11 @@ export default function DataExplorerPage() {
             </div>
           )}
 
-          {!loadingAll && allResponses.length > 0 && (
-            <DashboardCharts responses={allResponses} />
+          {!loadingAnalytics && analyticsData && analyticsData.totalCount > 0 && (
+            <DashboardCharts data={analyticsData} />
           )}
 
-          {!loadingAll && allResponses.length === 0 && !error && (
+          {!loadingAnalytics && analyticsData && analyticsData.totalCount === 0 && !error && (
             <div className="rounded-lg border-2 border-dashed border-zinc-200 p-12 text-center text-zinc-500">
               No hay datos locales para este rango. Primero sincroniza desde la vista Data.
             </div>
