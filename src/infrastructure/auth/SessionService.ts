@@ -92,7 +92,7 @@ export class SessionService {
 
     if (keys.keys.length > 0) {
       await Promise.all(
-        keys.keys.map((k) => KV_SESSIONS.delete(k.name)),
+        keys.keys.map((k: { name: string }) => KV_SESSIONS.delete(k.name)),
       );
     }
   }
