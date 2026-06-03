@@ -1,5 +1,5 @@
 import { injectable } from "tsyringe";
-import type { Queue } from "@cloudflare/workers-types";
+import type { Queue, MessageBatch } from "@cloudflare/workers-types";
 import { getBindings } from "@/lib/cloudflare/bindings";
 import { QUEUE_NAME_MAP } from "@/lib/cloudflare/bindings";
 import type {
