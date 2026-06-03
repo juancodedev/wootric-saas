@@ -15,20 +15,21 @@
 		"LOG_LEVEL": "info",
 		"RATE_LIMIT_WINDOW_SECONDS": "60",
 		"RATE_LIMIT_MAX_REQUESTS": "100",
-		"STORAGE_BUCKET": "wootric-saas-exports"
+		"STORAGE_BUCKET": "wootric-saas-exports",
+		"NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": ""
 	},
 	"kv_namespaces": [
 		{
 			"binding": "KV_CACHE",
-			"id": "60bcd0cc-db1e-4227-b1ef-22c7d7d42a05"
+			"id": "8fe4bea7008b49eb97cbcf757b8b2be4"
 		},
 		{
 			"binding": "KV_RATE_LIMIT",
-			"id": "bd8c84fa-510f-49eb-aad3-aafaa474fd15"
+			"id": "6ae62e09cc034ec1b2e9debaf2fed8d8"
 		},
 		{
 			"binding": "KV_SESSIONS",
-			"id": "f59601a4-6f8c-4366-921f-6489358cf8c5"
+			"id": "12003232bb80482aa9ac20523e5df5b2"
 		}
 	],
 	"r2_buckets": [

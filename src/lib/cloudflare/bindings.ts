@@ -35,6 +35,7 @@ export interface CloudflareBindings {
   EXPORT_WORKER: Fetcher;
   SYNC_WORKER: Fetcher;
   NEXT_PUBLIC_SUPABASE_URL: string;
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: string;
   NEXT_PUBLIC_APP_URL: string;
   LOG_LEVEL: string;
   RATE_LIMIT_WINDOW_SECONDS: string;
