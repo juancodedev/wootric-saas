@@ -32,21 +32,8 @@ jobs:
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
 
-      - name: Create R2 bucket (if not exists)
-        run: npx wrangler r2 bucket create wootric-saas-exports || true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Create queues (if not exists)
-        run: |
-          for queue in wootric-exports wootric-sync wootric-billing; do
-            for i in 1 2 3; do
-              npx wrangler queues create "$queue" && break
-              echo "Retry $i for $queue..."
-              sleep 5
-            done
-          done
+      - name: Ensure Cloudflare infrastructure
+        run: bash .github/scripts/ensure-infra.sh
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
