@@ -106,17 +106,33 @@ export class SubscriptionService {
 
     const now = new Date();
 
-    await admin.from("subscriptions").update({
-      status: "canceled",
-      canceled_at: now.toISOString(),
-    }).eq("tenant_id", tenantId).eq("status", "active");
-
-    await admin.from("subscriptions").insert({
+    // 1. Create new subscription FIRST so we never end up with zero active subs
+    const { error: insertErr } = await admin.from("subscriptions").insert({
       tenant_id: tenantId,
       plan_id: plan.id,
       status: "active",
       current_period_start: now.toISOString(),
       billing_interval: "monthly",
     });
+
+    if (insertErr) {
+      throw new Error(`Failed to create new subscription: ${insertErr.message}`);
+    }
+
+    // 2. Cancel old active subscriptions (best-effort — new sub already exists)
+    const { error: cancelErr } = await admin
+      .from("subscriptions")
+      .update({
+        status: "canceled",
+        canceled_at: now.toISOString(),
+      })
+      .eq("tenant_id", tenantId)
+      .eq("status", "active")
+      .neq("plan_id", plan.id); // don't cancel the one we just created
+
+    if (cancelErr) {
+      // Log but don't throw — the new subscription is already active
+      console.error(`[SubscriptionService] Failed to cancel old subscriptions for tenant ${tenantId}:`, cancelErr.message);
+    }
   }
 }

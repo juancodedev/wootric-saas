@@ -164,9 +164,11 @@ export class RegistrationService {
     ]);
 
     const sessions = new SessionService();
-    const jwtSecret = new TextEncoder().encode(
-      process.env.JWT_SECRET ?? "wootric-dev-secret-do-not-use-in-production",
-    );
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw new Error("JWT_SECRET environment variable is required");
+    }
+    const secretKey = new TextEncoder().encode(jwtSecret);
 
     const accessToken = await new SignJWT({
       sub: authUser.user.id,
@@ -176,7 +178,7 @@ export class RegistrationService {
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
       .setExpirationTime("24h")
-      .sign(jwtSecret);
+      .sign(secretKey);
 
     const refreshToken = await new SignJWT({
       sub: authUser.user.id,
@@ -185,7 +187,7 @@ export class RegistrationService {
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
       .setExpirationTime("30d")
-      .sign(jwtSecret);
+      .sign(secretKey);
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 

@@ -10,9 +10,11 @@ type MockChain = {
   then: (resolve: (v: DataResult) => void) => void;
   select: ReturnType<typeof vi.fn>;
   eq: ReturnType<typeof vi.fn>;
+  neq: ReturnType<typeof vi.fn>;
   order: ReturnType<typeof vi.fn>;
   limit: ReturnType<typeof vi.fn>;
   single: ReturnType<typeof vi.fn>;
+  maybeSingle: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
 };
@@ -26,17 +28,21 @@ function c(): MockChain {
     },
     select: vi.fn(),
     eq: vi.fn(),
+    neq: vi.fn(),
     order: vi.fn(),
     limit: vi.fn(),
     single: vi.fn(),
+    maybeSingle: vi.fn(),
     update: vi.fn(),
     insert: vi.fn(),
   };
   result.select.mockReturnValue(result);
   result.eq.mockReturnValue(result);
+  result.neq.mockReturnValue(result);
   result.order.mockReturnValue(result);
   result.limit.mockReturnValue(result);
   result.single.mockReturnValue(result);
+  result.maybeSingle.mockReturnValue(result);
   result.update.mockReturnValue(result);
   result.insert.mockReturnValue(result);
   return result;
@@ -144,13 +150,18 @@ describe("SubscriptionService", () => {
 
   describe("changePlan", () => {
     it("changes plan successfully", async () => {
+      // 1. Plan lookup succeeds
       queryResults.push({ data: { id: "plan2" }, error: null });
+      // 2. New subscription insert succeeds
+      queryResults.push({ data: null, error: null });
+      // 3. Cancel old subscription succeeds (best-effort)
+      queryResults.push({ data: null, error: null });
 
       const svc = new SubscriptionService();
       await expect(svc.changePlan("tenant1", "pro")).resolves.toBeUndefined();
 
-      expect(chain.update).toHaveBeenCalled();
       expect(chain.insert).toHaveBeenCalled();
+      expect(chain.update).toHaveBeenCalled();
     });
 
     it("throws when plan not found", async () => {

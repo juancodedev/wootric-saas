@@ -74,11 +74,26 @@ export class InvitationService {
       tenant_id: tenantId,
     });
 
-    // Increment user quota
-    await admin
+    // Increment user quota (read-then-write with Supabase RPC for atomicity)
+    const { data: quota } = await admin
       .from("usage_quotas")
-      .update({ used: admin.rpc("increment_quota", { delta: 1 }) })
+      .select("id, used")
       .eq("tenant_id", tenantId)
-      .eq("quota_key", "users");
+      .eq("quota_key", "max_users")
+      .maybeSingle();
+
+    if (quota) {
+      await admin
+        .from("usage_quotas")
+        .update({ used: quota.used + 1, updated_at: new Date().toISOString() })
+        .eq("id", quota.id);
+    } else {
+      await admin.from("usage_quotas").insert({
+        tenant_id: tenantId,
+        quota_key: "max_users",
+        used: 1,
+        limit: 1,
+      });
+    }
   }
 }

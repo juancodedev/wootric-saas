@@ -62,23 +62,46 @@ export class QuotaService {
   ): Promise<void> {
     const admin = createSupabaseAdmin();
 
+    // Try atomic increment via PostgreSQL RPC function (preferred)
+    // Requires: CREATE OR REPLACE FUNCTION increment_quota(p_tenant_id uuid, p_key text, p_delta int)
+    //           RETURNS void AS $$ ... $$ LANGUAGE plpgsql;
+    const { error: rpcError } = await admin.rpc("increment_quota", {
+      p_tenant_id: tenantId,
+      p_key: quotaKey,
+      p_delta: delta,
+    });
+
+    if (!rpcError) {
+      // RPC succeeded — quota was incremented atomically
+      if (action) {
+        await admin.from("quota_usage_history").insert({
+          tenant_id: tenantId,
+          quota_key: quotaKey,
+          delta,
+          action,
+        });
+      }
+      return;
+    }
+
+    // Fallback: read-then-write (not atomic, but better than nothing)
     const { data: quota } = await admin
       .from("usage_quotas")
-      .select("*")
+      .select("id, used")
       .eq("tenant_id", tenantId)
       .eq("quota_key", quotaKey)
-      .single();
+      .maybeSingle();
 
     if (quota) {
       await admin
         .from("usage_quotas")
-        .update({ used: quota.used + delta })
+        .update({ used: quota.used + delta, updated_at: new Date().toISOString() })
         .eq("id", quota.id);
     } else {
       await admin.from("usage_quotas").insert({
         tenant_id: tenantId,
         quota_key: quotaKey,
-        used: delta,
+        used: Math.max(0, delta),
         limit: 0,
       });
     }
