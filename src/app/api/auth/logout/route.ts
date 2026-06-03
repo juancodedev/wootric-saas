@@ -1,4 +1,3 @@
-import "reflect-metadata";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { SessionService } from "@/infrastructure/auth/SessionService";

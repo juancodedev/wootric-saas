@@ -1,4 +1,3 @@
-import { injectable } from "tsyringe";
 import type { Queue, MessageBatch } from "@cloudflare/workers-types";
 import { getBindings } from "@/lib/cloudflare/bindings";
 import { QUEUE_NAME_MAP } from "@/lib/cloudflare/bindings";
@@ -10,7 +9,6 @@ import type {
 
 type QueueHandler<T> = (message: QueueMessage<T>) => Promise<void>;
 
-@injectable()
 export class CloudflareQueueService implements IQueueProvider {
   private static handlers = new Map<string, QueueHandler<unknown>>();
 

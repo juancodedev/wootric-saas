@@ -1,4 +1,3 @@
-import { injectable } from "tsyringe";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
   IAuthProvider,
@@ -8,7 +7,6 @@ import type {
 } from "@/application/ports/services";
 import { SessionService } from "./SessionService";
 
-@injectable()
 export class SupabaseAuthProvider implements IAuthProvider {
   constructor(private readonly sessions: SessionService) {}
 
