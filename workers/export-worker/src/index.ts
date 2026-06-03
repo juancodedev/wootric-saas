@@ -7,6 +7,26 @@ function log(level: string, message: string, ...args: unknown[]): void {
   console.log(JSON.stringify({ level, message, args, timestamp: new Date().toISOString() }));
 }
 
+const ALLOWED_EXPORT_TABLES = new Set([
+  "wootric_responses",
+  "dashboards",
+  "dashboard_widgets",
+  "reports",
+  "export_history",
+  "audit_logs",
+]);
+
+function sanitizeTableName(table: string): string {
+  // Only allow alphanumeric and underscores — reject anything else
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
+    throw new Error(`Invalid table name: ${table}`);
+  }
+  if (!ALLOWED_EXPORT_TABLES.has(table)) {
+    throw new Error(`Table not allowed for export: ${table}`);
+  }
+  return table;
+}
+
 async function fetchReportData(
   env: Env,
   tenantId: string,
@@ -37,7 +57,7 @@ async function fetchReportData(
       if (report?.config) {
         const config = report.config as Record<string, unknown>;
         if (config.source_table) {
-          return fetchTableData(url, key, config.source_table as string, tenantId, filters);
+          return fetchTableData(url, key, sanitizeTableName(config.source_table as string), tenantId, filters);
         }
       }
     }
@@ -57,11 +77,12 @@ async function fetchTableData(
   columns: { key: string; header: string; width?: number }[];
   title: string;
 }> {
-  let queryUrl = `${url}/rest/v1/${table}?select=*&tenant_id=eq.${tenantId}&limit=1000`;
+  const safeTable = sanitizeTableName(table);
+  let queryUrl = `${url}/rest/v1/${safeTable}?select=*&tenant_id=eq.${tenantId}&limit=1000`;
 
   if (filters) {
     for (const [col, val] of Object.entries(filters)) {
-      if (val !== undefined && val !== null) {
+      if (val !== undefined && val !== null && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col)) {
         queryUrl += `&${col}=eq.${encodeURIComponent(String(val))}`;
       }
     }
