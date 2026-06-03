@@ -40,9 +40,13 @@ jobs:
 
       - name: Create queues (if not exists)
         run: |
-          npx wrangler queues create wootric-exports || true
-          npx wrangler queues create wootric-sync || true
-          npx wrangler queues create wootric-billing || true
+          for queue in wootric-exports wootric-sync wootric-billing; do
+            for i in 1 2 3; do
+              npx wrangler queues create "$queue" && break
+              echo "Retry $i for $queue..."
+              sleep 5
+            done
+          done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
