@@ -198,19 +198,14 @@ async function validateSession(
     return { session: null, reason: `token expired (exp: ${exp})` };
   }
 
-  // Try KV session first
-  const prefix = `session:${userId}:`;
+  // Try KV session first — single get using "current" pointer
+  const currentKey = `session:${userId}:current`;
   try {
-    const keys = await bindings.KV_SESSIONS.list({ prefix });
-    if (keys.keys.length > 0) {
-      const value = await bindings.KV_SESSIONS.get(
-        keys.keys[keys.keys.length - 1]!.name,
-      );
-      if (value) {
-        const session = JSON.parse(value) as StoredSession;
-        if (new Date(session.expiresAt) >= new Date()) {
-          return { session };
-        }
+    const value = await bindings.KV_SESSIONS.get(currentKey);
+    if (value) {
+      const session = JSON.parse(value) as StoredSession;
+      if (new Date(session.expiresAt) >= new Date()) {
+        return { session };
       }
     }
   } catch {
