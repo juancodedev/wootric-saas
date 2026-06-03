@@ -227,46 +227,40 @@ async function validateSession(
     const { createClient } = await import("@supabase/supabase-js");
     const admin = createClient(supabaseUrl, serviceKey);
 
-    const { data: user, error: userErr } = await admin
+    // Single query replaces 4 sequential queries (users → user_roles → role_permissions → user_permissions)
+    // Supabase nested selects fetch user, roles, and permissions in one round-trip
+    const { data: userData, error: userErr } = await admin
       .from("users")
-      .select("id, tenant_id, email, name")
+      .select(`
+        id, tenant_id, email, name,
+        user_roles(role_id, role_permissions(permissions!inner(slug))),
+        user_permissions(permissions!inner(slug))
+      `)
       .eq("id", userId)
       .single();
 
-    if (userErr || !user) {
+    if (userErr || !userData) {
       return { session: null, reason: `user query failed: ${userErr?.message ?? "not found"}` };
     }
 
-    const { data: roles } = await admin
-      .from("user_roles")
-      .select("role_id")
-      .eq("user_id", userId);
+    type UserRow = {
+      id: string;
+      tenant_id: string;
+      email: string;
+      name: string;
+      user_roles: { role_id: string; role_permissions: { permissions: { slug: string } }[] }[];
+      user_permissions: { permissions: { slug: string } }[];
+    };
 
-    const roleIds = (roles ?? []).map((r) => r.role_id);
-    let permissionSlugs: string[] = [];
+    const user = userData as unknown as UserRow;
+    const roleIds = (user.user_roles ?? []).map((r) => r.role_id);
 
-    if (roleIds.length > 0) {
-      const { data: rolePerms } = await admin
-        .from("role_permissions")
-        .select("permissions!inner(slug)")
-        .in("role_id", roleIds);
-      if (rolePerms) {
-        permissionSlugs = (rolePerms as unknown as { permissions: { slug: string } }[]).map(
-          (rp) => rp.permissions.slug,
-        );
-      }
-    }
-
-    const { data: directPerms } = await admin
-      .from("user_permissions")
-      .select("permissions!inner(slug)")
-      .eq("user_id", userId);
-    if (directPerms) {
-      const directSlugs = (directPerms as unknown as { permissions: { slug: string } }[]).map(
-        (up) => up.permissions.slug,
-      );
-      permissionSlugs = [...new Set([...permissionSlugs, ...directSlugs])];
-    }
+    // Collect permission slugs from both role-based and direct permissions
+    const rolePermSlugs = (user.user_roles ?? []).flatMap((r) =>
+      (r.role_permissions ?? []).map((rp) => rp.permissions.slug),
+    );
+    const directPermSlugs = (user.user_permissions ?? []).map((up) => up.permissions.slug);
+    const permissionSlugs = [...new Set([...rolePermSlugs, ...directPermSlugs])];
 
     const expiresAt = payload.exp ? new Date((payload.exp as number) * 1000) : new Date(Date.now() + 3600000);
 
