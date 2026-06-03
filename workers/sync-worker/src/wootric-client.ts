@@ -52,7 +52,10 @@ export class WootricApiClient {
   private async request<T>(
     path: string,
     params?: Record<string, string | number | undefined>,
+    _retryCount = 0,
   ): Promise<T> {
+    const MAX_RETRIES = 2;
+
     await this.rateLimit();
 
     const url = new URL(`${this.credentials.apiUrl}${path}`);
@@ -73,10 +76,13 @@ export class WootricApiClient {
     });
 
     if (res.status === 429) {
+      if (_retryCount >= MAX_RETRIES) {
+        throw new Error(`Wootric API rate limit exceeded after ${MAX_RETRIES} retries for ${path}`);
+      }
       const retryAfter = res.headers.get("Retry-After");
       const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 10000;
       await new Promise((resolve) => setTimeout(resolve, waitMs));
-      return this.request<T>(path, params);
+      return this.request<T>(path, params, _retryCount + 1);
     }
 
     if (!res.ok) {
