@@ -21,6 +21,10 @@ export async function POST(request: NextRequest) {
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
     if (!url || !anonKey) {
+      console.error("[login] Missing env vars:", {
+        hasUrl: !!url,
+        hasAnonKey: !!anonKey,
+      });
       return NextResponse.json(
         { error: "Supabase URL and publishable key are required" },
         { status: 500 },
@@ -118,7 +122,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err) {
-    console.error("Login error:", err);
+    console.error("[login] Error:", err instanceof Error ? err.message : err);
+    console.error("[login] Stack:", err instanceof Error ? err.stack : "no stack");
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },
