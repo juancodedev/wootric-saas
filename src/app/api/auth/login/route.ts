@@ -4,17 +4,21 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { SessionService } from "@/infrastructure/auth/SessionService";
 import type { AuthResponse } from "@/presentation/dtos/auth";
+import { loginSchema } from "@/lib/validation";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as { email?: string; password?: string };
+    const body = await request.json();
+    const parsed = loginSchema.safeParse(body);
 
-    if (!body.email || !body.password) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Email and password are required" },
+        { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
         { status: 400 },
       );
     }
+
+    const { email, password } = parsed.data;
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -32,8 +36,8 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient(url, anonKey);
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: body.email,
-      password: body.password,
+      email,
+      password,
     });
 
     if (authError || !authData.session) {

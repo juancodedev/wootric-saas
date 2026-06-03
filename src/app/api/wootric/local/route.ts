@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { getAuthContextFromToken } from "@/lib/auth/context";
+import { wootricLocalQuerySchema } from "@/lib/validation";
 
 type WootricResponseRow = {
   id: string;
@@ -61,15 +62,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No tenant context" }, { status: 401 });
     }
 
-    const body = (await request.json()) as {
-      startDate?: string;
-      endDate?: string;
-      page?: number;
-      perPage?: number;
-    };
+    const rawBody = await request.json();
+    const parsed = wootricLocalQuerySchema.safeParse(rawBody);
 
-    const page = Math.max(body.page ?? 1, 1);
-    const perPage = Math.min(Math.max(body.perPage ?? 25, 1), 100000);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const { startDate, endDate, page, perPage } = parsed.data;
     const offset = (page - 1) * perPage;
 
     const admin = createSupabaseAdmin();
@@ -82,12 +85,12 @@ export async function POST(request: NextRequest) {
       )
       .eq("tenant_id", tenantId);
 
-    if (body.startDate) {
-      const start = new Date(body.startDate);
+    if (startDate) {
+      const start = new Date(startDate);
       query = query.gte("wootric_created_at", start.toISOString());
     }
-    if (body.endDate) {
-      const end = new Date(body.endDate);
+    if (endDate) {
+      const end = new Date(endDate);
       query = query.lte("wootric_created_at", end.toISOString());
     }
 
