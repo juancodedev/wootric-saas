@@ -6,6 +6,7 @@ const RATE_LIMIT_WINDOW = 60;
 const RATE_LIMIT_MAX = 100;
 const TENANT_CACHE_TTL = 300;
 const SUB_CACHE_TTL = 60;
+const IS_DEV = process.env.NODE_ENV !== "production";
 
 type StoredSession = {
   id: string;
@@ -17,10 +18,6 @@ type StoredSession = {
   expiresAt: string;
   createdAt: string;
 };
-
-type DebugInfo = Record<string, unknown>;
-
-let debugInfo: DebugInfo = {};
 
 type CloudflareEnv = {
   KV_SESSIONS: KVNamespace;
@@ -68,6 +65,121 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
+function checkCsrf(request: NextRequest): boolean {
+  if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
+    return true;
+  }
+  const csrfCookie = request.cookies.get("__Host-csrf")?.value;
+  const csrfHeader = request.headers.get("x-csrf-token");
+  if (!csrfCookie || !csrfHeader) return false;
+  if (csrfCookie.length !== 64 || csrfHeader.length !== 64) return false;
+  return csrfCookie === csrfHeader;
+}
+
+function getIpAddress(request: NextRequest): string {
+  return (
+    request.headers.get("cf-connecting-ip") ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "127.0.0.1"
+  );
+}
+
+function resolveTenantSlug(host: string): string | undefined {
+  const hostParts = host.split(".");
+  if (hostParts.length >= 3 && hostParts[0] !== "app" && hostParts[0] !== "www") {
+    return hostParts[0];
+  }
+  return undefined;
+}
+
+async function resolveTenantId(
+  request: NextRequest,
+  session: StoredSession,
+  bindings: CloudflareEnv,
+): Promise<{ tenantId: string; tenantStatus: string } | { error: string; status: number }> {
+  const host = request.headers.get("host") || "";
+  const tenantSlug = resolveTenantSlug(host);
+  const headerTenantId = request.headers.get("x-tenant-id");
+
+  let tenantId: string | undefined;
+  let tenantStatus: string | undefined;
+
+  // Try resolving tenant from slug (subdomain)
+  if (tenantSlug) {
+    const tenant = await resolveTenantFromSlug(tenantSlug, bindings);
+    if (tenant) {
+      tenantId = tenant.id;
+      tenantStatus = tenant.status;
+    }
+  }
+
+  // Override tenantId from header if provided (direct tenant access)
+  if (headerTenantId) {
+    tenantId = headerTenantId;
+  }
+
+  // Fallback to session tenant
+  if (!tenantId) {
+    tenantId = session.tenantId;
+  }
+
+  if (!tenantId) {
+    return { error: "Tenant not found", status: 404 };
+  }
+
+  // If we have tenantId but no status, try to get it
+  if (!tenantStatus) {
+    const { createSupabaseAdmin } = await import("@/lib/supabase/admin");
+    const supabase = createSupabaseAdmin();
+    const { data: t } = await supabase
+      .from("tenants")
+      .select("status")
+      .eq("id", tenantId)
+      .maybeSingle();
+    if (t) tenantStatus = t.status;
+  }
+
+  return { tenantId, tenantStatus: tenantStatus ?? "active" };
+}
+
+function checkTenantStatus(tenantStatus: string): { blocked: boolean; response?: NextResponse } {
+  if (tenantStatus === "suspended") {
+    return {
+      blocked: true,
+      response: NextResponse.json({ error: "Account suspended" }, { status: 403 }),
+    };
+  }
+  if (tenantStatus === "inactive") {
+    return {
+      blocked: true,
+      response: NextResponse.json({ error: "Account is not active" }, { status: 403 }),
+    };
+  }
+  return { blocked: false };
+}
+
+function checkPermissions(
+  session: StoredSession,
+  guard: { permission?: string; permissions?: string[]; permissionMode?: string },
+): boolean {
+  if (guard.permission) {
+    if (!session.permissions.includes(guard.permission)) return false;
+  }
+
+  if (guard.permissions && guard.permissions.length > 0) {
+    const mode = guard.permissionMode ?? "any";
+    const hasAny = guard.permissions.some((p) =>
+      session.permissions.some((sp) => sp === p || sp.startsWith(p.replace("*", ""))),
+    );
+    const hasAll = guard.permissions.every((p) =>
+      session.permissions.some((sp) => sp === p || sp.startsWith(p.replace("*", ""))),
+    );
+    if (mode === "all" ? !hasAll : !hasAny) return false;
+  }
+
+  return true;
+}
+
 async function validateSession(
   token: string,
   bindings: CloudflareEnv,
@@ -87,10 +199,8 @@ async function validateSession(
 
   // Try KV session first
   const prefix = `session:${userId}:`;
-  let keysCount = 0;
   try {
     const keys = await bindings.KV_SESSIONS.list({ prefix });
-    keysCount = keys.keys.length;
     if (keys.keys.length > 0) {
       const value = await bindings.KV_SESSIONS.get(
         keys.keys[keys.keys.length - 1]!.name,
@@ -107,28 +217,12 @@ async function validateSession(
   }
 
   // Fallback: extract session from JWT + Supabase
-  const userMeta = payload.user_metadata as Record<string, unknown> | undefined;
-  const email = payload.email as string | undefined;
-  const tenantIdFromJwt = userMeta?.tenant_id as string | undefined;
   const iss = payload.iss as string | undefined;
 
   try {
-    // Get Supabase URL from JWT issuer or env
     const supabaseUrl = iss?.replace("/auth/v1", "") || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
     const env = bindings as Record<string, unknown>;
     const serviceKey = (env.SUPABASE_SERVICE_ROLE_KEY as string) || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
-    // Debug info as response headers (set later)
-    debugInfo = {
-      keysCount,
-      hasMeta: !!userMeta,
-      tenantIdFromJwt: tenantIdFromJwt ?? "none",
-      supabaseUrl: supabaseUrl ? "ok" : "missing",
-      serviceKey: serviceKey ? "ok" : "missing",
-      userId,
-      email: email ?? "none",
-      iss: iss ?? "none",
-    };
 
     if (!supabaseUrl || !serviceKey) {
       return { session: null, reason: `missing Supabase credentials (url: ${!!supabaseUrl}, key: ${!!serviceKey})` };
@@ -335,15 +429,25 @@ function setSecureHeaders(response: NextResponse): void {
   );
 }
 
-function checkCsrf(request: NextRequest): boolean {
-  if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
-    return true;
-  }
-  const csrfCookie = request.cookies.get("__Host-csrf")?.value;
-  const csrfHeader = request.headers.get("x-csrf-token");
-  if (!csrfCookie || !csrfHeader) return false;
-  if (csrfCookie.length !== 64 || csrfHeader.length !== 64) return false;
-  return csrfCookie === csrfHeader;
+function setContextHeaders(
+  response: NextResponse,
+  requestHeaders: Headers,
+  session: StoredSession,
+  tenantId: string,
+): void {
+  requestHeaders.set("X-User-ID", session.userId);
+  requestHeaders.set("X-Tenant-ID", tenantId);
+  requestHeaders.set("X-User-Email", session.email);
+  requestHeaders.set("X-Session-ID", session.id);
+  requestHeaders.set("X-User-Roles", session.roleIds.join(","));
+  // NOTE: X-User-Permissions intentionally NOT set on response headers to avoid
+  // leaking permission information to the client. Only available via request headers
+  // for downstream server-side consumption.
+
+  response.headers.set("X-User-ID", session.userId);
+  response.headers.set("X-Tenant-ID", tenantId);
+  response.headers.set("X-User-Email", session.email);
+  response.headers.set("X-Session-ID", session.id);
 }
 
 async function auditLog(
@@ -395,10 +499,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     const bindings = await getBindings();
 
     // ── Step 3: Rate Limiting ──
-    const ip =
-      request.headers.get("cf-connecting-ip") ||
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      "127.0.0.1";
+    const ip = getIpAddress(request);
 
     const rateLimit = await checkRateLimit(ip, bindings);
     response.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX));
@@ -413,8 +514,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
     // ── Step 4: CSRF check on mutations ──
     if (isMutationMethod(request.method) && !checkCsrf(request)) {
-      // In SPA mode, CSRF can be handled by the client; log a warning
-      console.warn(`CSRF check failed for ${request.method} ${pathname}`);
+      return NextResponse.json(
+        { error: "CSRF token missing or invalid" },
+        { status: 403, headers: response.headers },
+      );
     }
 
     // ── Step 5: Authentication ──
@@ -429,87 +532,30 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
     const { session, reason } = await validateSession(token, bindings);
 
-    // Set debug headers for local dev
-    for (const [key, val] of Object.entries(debugInfo)) {
-      response.headers.set(`X-Debug-${key}`, String(val));
-    }
-
     if (!session) {
-      console.error("[middleware] Session validation failed:", reason);
-      response.headers.set("X-Debug-Reason", reason ?? "unknown");
+      if (IS_DEV) {
+        response.headers.set("X-Debug-Reason", reason ?? "unknown");
+      }
       return NextResponse.json(
-        { error: "Invalid or expired session", detail: reason },
+        { error: "Invalid or expired session" },
         { status: 401, headers: response.headers },
       );
     }
 
-    console.log("[middleware] Session OK:", session.userId, session.tenantId);
-
     // ── Step 6: Tenant Resolution ──
-    const host = request.headers.get("host") || "";
-    const hostParts = host.split(".");
-    let tenantSlug: string | undefined;
-
-    if (hostParts.length >= 3 && hostParts[0] !== "app" && hostParts[0] !== "www") {
-      tenantSlug = hostParts[0];
-    }
-
-    const headerTenantId = request.headers.get("x-tenant-id");
-    let tenantId: string | undefined;
-    let tenantStatus: string | undefined;
-
-    // Try resolving tenant from slug (subdomain)
-    if (tenantSlug) {
-      const tenant = await resolveTenantFromSlug(tenantSlug, bindings);
-      if (tenant) {
-        tenantId = tenant.id;
-        tenantStatus = tenant.status;
-      }
-    }
-
-    // Override tenantId from header if provided (direct tenant access)
-    if (headerTenantId) {
-      tenantId = headerTenantId;
-    }
-
-    // Fallback to session tenant
-    if (!tenantId) {
-      tenantId = session.tenantId;
-    }
-
-    if (!tenantId) {
+    const tenantResult = await resolveTenantId(request, session, bindings);
+    if ("error" in tenantResult) {
       return NextResponse.json(
-        { error: "Tenant not found" },
-        { status: 404, headers: response.headers },
+        { error: tenantResult.error },
+        { status: tenantResult.status, headers: response.headers },
       );
     }
-
-    // If we have tenantId but no status, try to get it
-    if (!tenantStatus) {
-      const { createSupabaseAdmin } = await import("@/lib/supabase/admin");
-      const supabase = createSupabaseAdmin();
-      const { data: t } = await supabase
-        .from("tenants")
-        .select("status")
-        .eq("id", tenantId)
-        .maybeSingle();
-      if (t) tenantStatus = t.status;
-    }
+    const { tenantId, tenantStatus } = tenantResult;
 
     // ── Step 7: Tenant Active Check ──
-    if (tenantStatus && tenantStatus !== "active") {
-      if (tenantStatus === "suspended") {
-        return NextResponse.json(
-          { error: "Account suspended" },
-          { status: 403, headers: response.headers },
-        );
-      }
-      if (tenantStatus === "inactive") {
-        return NextResponse.json(
-          { error: "Account is not active" },
-          { status: 403, headers: response.headers },
-        );
-      }
+    const tenantCheck = checkTenantStatus(tenantStatus);
+    if (tenantCheck.blocked) {
+      return tenantCheck.response!;
     }
 
     // ── Step 8: Subscription / Trial Check ──
@@ -526,33 +572,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     }
 
     // ── Step 9: Permission Check ──
-    if (guard) {
-      if (guard.permission) {
-        const hasPerm = session.permissions.includes(guard.permission);
-        if (!hasPerm) {
-          return NextResponse.json(
-            { error: "Insufficient permissions" },
-            { status: 403, headers: response.headers },
-          );
-        }
-      }
-
-      if (guard.permissions && guard.permissions.length > 0) {
-        const mode = guard.permissionMode ?? "any";
-        const hasAny = guard.permissions.some((p) =>
-          session.permissions.some((sp) => sp === p || sp.startsWith(p.replace("*", ""))),
-        );
-        const hasAll = guard.permissions.every((p) =>
-          session.permissions.some((sp) => sp === p || sp.startsWith(p.replace("*", ""))),
-        );
-        const allowed = mode === "all" ? hasAll : hasAny;
-        if (!allowed) {
-          return NextResponse.json(
-            { error: "Insufficient permissions" },
-            { status: 403, headers: response.headers },
-          );
-        }
-      }
+    if (guard && !checkPermissions(session, guard)) {
+      return NextResponse.json(
+        { error: "Insufficient permissions" },
+        { status: 403, headers: response.headers },
+      );
     }
 
     // ── Step 10: Feature Flag Check ──
@@ -592,20 +616,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
     // ── Set context headers ──
     const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("X-User-ID", session.userId);
-    requestHeaders.set("X-Tenant-ID", tenantId);
-    requestHeaders.set("X-User-Email", session.email);
-    requestHeaders.set("X-Session-ID", session.id);
-    requestHeaders.set("X-User-Roles", session.roleIds.join(","));
-    requestHeaders.set("X-User-Permissions", session.permissions.join(","));
-
     response = NextResponse.next({ request: { headers: requestHeaders } });
-    response.headers.set("X-User-ID", session.userId);
-    response.headers.set("X-Tenant-ID", tenantId);
-    response.headers.set("X-User-Email", session.email);
-    response.headers.set("X-Session-ID", session.id);
-    response.headers.set("X-User-Roles", session.roleIds.join(","));
-    response.headers.set("X-User-Permissions", session.permissions.join(","));
+    setContextHeaders(response, requestHeaders, session, tenantId);
 
     // ── Step 12: Audit Log (fire-and-forget) ──
     auditLog("api_request", {

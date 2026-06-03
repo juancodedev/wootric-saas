@@ -176,7 +176,10 @@ export class WootricService {
     path: string,
     params?: Record<string, string | number | undefined>,
     signal?: AbortSignal,
+    _retryCount = 0,
   ): Promise<T> {
+    const MAX_RETRIES = 2;
+
     await this.rateLimit();
 
     const token = await this.ensureValidToken(signal);
@@ -198,16 +201,22 @@ export class WootricService {
     });
 
     if (res.status === 429) {
+      if (_retryCount >= MAX_RETRIES) {
+        throw new Error(`Wootric API rate limit exceeded after ${MAX_RETRIES} retries for ${path}`);
+      }
       const retryAfter = res.headers.get("Retry-After");
       const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 10000;
       await new Promise((resolve) => setTimeout(resolve, waitMs));
-      return this.request<T>(path, params, signal);
+      return this.request<T>(path, params, signal, _retryCount + 1);
     }
 
     if (res.status === 401) {
+      if (_retryCount >= MAX_RETRIES) {
+        throw new Error(`Wootric API authentication failed after ${MAX_RETRIES} retries for ${path}`);
+      }
       this.accessToken = null;
       this.expiresAt = null;
-      return this.request<T>(path, params, signal);
+      return this.request<T>(path, params, signal, _retryCount + 1);
     }
 
     if (!res.ok) {
