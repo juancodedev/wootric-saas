@@ -1,4 +1,4 @@
-import type { Queue } from "@cloudflare/workers-types";
+import type { KVNamespace, R2Bucket, Fetcher, Queue } from "@cloudflare/workers-types";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export interface ExportJobMessage {

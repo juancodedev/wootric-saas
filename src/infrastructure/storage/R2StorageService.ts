@@ -1,4 +1,5 @@
 import { injectable } from "tsyringe";
+import type { R2Bucket } from "@cloudflare/workers-types";
 import { getBindings } from "@/lib/cloudflare/bindings";
 import type { IStorageProvider } from "@/application/ports/services";
 
