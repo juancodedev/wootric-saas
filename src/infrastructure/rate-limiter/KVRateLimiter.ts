@@ -1,8 +1,6 @@
-import { injectable } from "tsyringe";
 import { getBindings } from "@/lib/cloudflare/bindings";
 import type { IRateLimiter, RateLimitResult } from "@/application/ports/services";
 
-@injectable()
 export class KVRateLimiter implements IRateLimiter {
   async check(
     key: string,

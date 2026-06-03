@@ -76,7 +76,7 @@ export class ExportService {
     const admin = createSupabaseAdmin();
     const { data } = await admin
       .from("export_history")
-      .select("*")
+      .select("id, status, format, file_name, file_size, record_count, error_message, r2_key, created_at, completed_at")
       .eq("id", exportId)
       .maybeSingle();
 
@@ -159,7 +159,7 @@ export class ExportService {
     const admin = createSupabaseAdmin();
     let query = admin
       .from("export_history")
-      .select("*")
+      .select("id, status, format, file_name, file_size, record_count, error_message, created_at, completed_at")
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false });
 

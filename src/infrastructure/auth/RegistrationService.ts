@@ -1,4 +1,3 @@
-import { injectable } from "tsyringe";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { createCustomer } from "@/lib/stripe";
 import { TRIAL_DURATION_DAYS, TRIAL_MAX_EXPORTS, TRIAL_MAX_DASHBOARDS, TRIAL_MAX_USERS } from "@/lib/constants";
@@ -20,7 +19,6 @@ export interface RegistrationResult {
   refreshToken: string;
 }
 
-@injectable()
 export class RegistrationService {
   async register(input: RegistrationInput): Promise<RegistrationResult> {
     const admin = createSupabaseAdmin();

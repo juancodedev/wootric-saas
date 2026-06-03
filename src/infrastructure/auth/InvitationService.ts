@@ -1,4 +1,3 @@
-import { injectable } from "tsyringe";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 
 export interface InvitationInput {
@@ -7,7 +6,6 @@ export interface InvitationInput {
   roleSlug: string;
 }
 
-@injectable()
 export class InvitationService {
   async invite(input: InvitationInput): Promise<void> {
     const admin = createSupabaseAdmin();

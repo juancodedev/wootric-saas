@@ -68,7 +68,7 @@ export class FeatureFlagService implements IFeatureFlagService {
     const flagIds = allFlags.map((f) => f.id);
 
     // 2. Batch-fetch all overrides for this tenant in one query
-    let overridesMap: Record<string, boolean> = {};
+    const overridesMap: Record<string, boolean> = {};
     if (tenantId && flagIds.length > 0) {
       const { data: overrides } = await admin
         .from("feature_flag_overrides")
@@ -84,7 +84,7 @@ export class FeatureFlagService implements IFeatureFlagService {
     }
 
     // 3. Fetch subscription + plan features once (if tenant provided)
-    let planFeaturesMap: Record<string, boolean> = {};
+    const planFeaturesMap: Record<string, boolean> = {};
     if (tenantId) {
       const subscription = await this.subs.getCurrentSubscription(tenantId);
       if (subscription) {

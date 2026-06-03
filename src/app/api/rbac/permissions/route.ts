@@ -1,4 +1,3 @@
-import "reflect-metadata";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { RbacService } from "@/application/services/RbacService";

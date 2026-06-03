@@ -1,4 +1,3 @@
-import { injectable } from "tsyringe";
 import type { R2Bucket } from "@cloudflare/workers-types";
 import { getBindings } from "@/lib/cloudflare/bindings";
 import type { IStorageProvider } from "@/application/ports/services";
@@ -10,7 +9,6 @@ interface R2BucketWithSignedUrl extends R2Bucket {
   ): Promise<URL>;
 }
 
-@injectable()
 export class R2StorageService implements IStorageProvider {
   async upload(
     path: string,

@@ -1,8 +1,6 @@
-import { injectable } from "tsyringe";
 import { getBindings } from "@/lib/cloudflare/bindings";
 import type { ICacheProvider } from "@/application/ports/services";
 
-@injectable()
 export class KVStorageService implements ICacheProvider {
   async get<T>(key: string): Promise<T | null> {
     const { KV_CACHE } = await getBindings();
