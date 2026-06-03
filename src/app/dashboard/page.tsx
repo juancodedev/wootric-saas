@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { isAuthenticated, apiFetch } from "@/lib/auth-client";
+import { isAuthenticated, apiFetch, hasRole } from "@/lib/auth-client";
 import { ToggleSwitch } from "@/components/dashboard/toggle-switch";
 
 type DashboardInfo = {
@@ -35,13 +35,21 @@ export default function DashboardPage() {
       return;
     }
 
-    Promise.all([
+    const isAdmin = hasRole("admin");
+    const requests: Promise<unknown>[] = [
       apiFetch<{ dashboards: DashboardInfo[] }>("/api/dashboards"),
-      apiFetch<{ flags: FeatureFlag[] }>("/api/feature-flags"),
-    ])
+    ];
+
+    if (isAdmin) {
+      requests.push(apiFetch<{ flags: FeatureFlag[] }>("/api/feature-flags"));
+    }
+
+    Promise.all(requests)
       .then(([dashData, flagData]) => {
-        setDashboards(dashData.dashboards);
-        setFlags(flagData.flags);
+        setDashboards((dashData as { dashboards: DashboardInfo[] }).dashboards);
+        if (flagData && "flags" in (flagData as Record<string, unknown>)) {
+          setFlags((flagData as { flags: FeatureFlag[] }).flags);
+        }
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
