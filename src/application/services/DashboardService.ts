@@ -248,17 +248,24 @@ export class DashboardService {
     widgetIds: string[],
   ): Promise<void> {
     const admin = createSupabaseAdmin();
-    const updates = widgetIds.map((id, index) => ({
-      id,
-      sort_order: index,
-    }));
 
-    for (const u of updates) {
-      await admin
-        .from("dashboard_widgets")
-        .update({ sort_order: u.sort_order })
-        .eq("id", u.id)
-        .eq("dashboard_id", dashboardId);
+    // Single batch update using Promise.all — all queries fire in parallel,
+    // reducing N sequential round-trips to 1 concurrent batch
+    const results = await Promise.all(
+      widgetIds.map((id, index) =>
+        admin
+          .from("dashboard_widgets")
+          .update({ sort_order: index })
+          .eq("id", id)
+          .eq("dashboard_id", dashboardId),
+      ),
+    );
+
+    const errors = results.filter((r) => r.error);
+    if (errors.length > 0) {
+      throw new Error(
+        `Failed to reorder widgets: ${errors[0]!.error?.message ?? "unknown"}`,
+      );
     }
   }
 
