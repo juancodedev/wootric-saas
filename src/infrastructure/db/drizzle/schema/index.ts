@@ -264,6 +264,7 @@ export const subscriptions = pgTable(
   },
   (t) => [
     index("subscriptions_tenant_idx").on(t.tenantId),
+    index("subscriptions_tenant_created_idx").on(t.tenantId, t.createdAt),
     index("subscriptions_status_idx").on(t.status),
     uniqueIndex("subscriptions_stripe_sub_idx").on(t.stripeSubscriptionId),
   ],
@@ -314,7 +315,10 @@ export const quotaUsageHistory = pgTable(
     action: varchar("action", { length: 100 }).notNull(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   },
-  (t) => [index("quota_history_tenant_idx").on(t.tenantId)],
+  (t) => [
+    index("quota_history_tenant_idx").on(t.tenantId),
+    index("quota_history_tenant_created_idx").on(t.tenantId, t.createdAt),
+  ],
 );
 
 // ═════════════════════════════════════════════════════════════════════════════

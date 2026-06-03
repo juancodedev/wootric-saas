@@ -69,9 +69,9 @@ async function runSync(
       },
     });
 
-    responsesSynced = Math.min(result.responses.length, remaining);
+    responsesSynced = Math.min(result.totalCount, remaining);
 
-    if (result.responses.length > 0) {
+    if (result.totalCount > 0) {
       await supabase.upsertConfig(tenantId, lastSyncKey, new Date().toISOString());
       await supabase.updateQuotaUsed(tenantId, "max_responses_synced", usedResponses + responsesSynced);
 
@@ -107,6 +107,8 @@ async function handleSyncJob(
   log("info", `Sync completed for tenant ${msg.tenantId}: ${JSON.stringify(result)}`);
 }
 
+const SYNC_CONCURRENCY_LIMIT = 5;
+
 async function handleScheduledSync(env: Env): Promise<void> {
   const supabase = createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   log("info", "Running scheduled sync for all active tenants");
@@ -117,14 +119,25 @@ async function handleScheduledSync(env: Env): Promise<void> {
   let totalSynced = 0;
   let totalErrors = 0;
 
-  for (const tenant of tenants) {
-    try {
-      const result = await runSync(supabase, tenant.id, "incremental", env);
-      totalSynced += result.responsesSynced;
-      totalErrors += result.errors;
-    } catch (error) {
-      totalErrors++;
-      log("error", `Scheduled sync failed for tenant ${tenant.id} (${tenant.slug}): ${error}`);
+  // Process tenants in batches for controlled concurrency
+  for (let i = 0; i < tenants.length; i += SYNC_CONCURRENCY_LIMIT) {
+    const batch = tenants.slice(i, i + SYNC_CONCURRENCY_LIMIT);
+    const results = await Promise.allSettled(
+      batch.map((tenant) =>
+        runSync(supabase, tenant.id, "incremental", env).then((result) => {
+          totalSynced += result.responsesSynced;
+          totalErrors += result.errors;
+          return result;
+        }),
+      ),
+    );
+
+    for (let j = 0; j < results.length; j++) {
+      const result = results[j]!;
+      if (result.status === "rejected") {
+        totalErrors++;
+        log("error", `Scheduled sync failed for tenant ${batch[j]!.id} (${batch[j]!.slug}): ${result.reason}`);
+      }
     }
   }
 

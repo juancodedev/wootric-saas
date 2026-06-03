@@ -283,10 +283,12 @@ async function validateSession(
 
 async function checkRateLimit(
   ip: string,
+  tenantId: string | undefined,
   bindings: CloudflareEnv,
 ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
   const now = Math.floor(Date.now() / 1000);
-  const windowKey = `mw:${ip}:${Math.floor(now / RATE_LIMIT_WINDOW)}`;
+  const scopeKey = tenantId ? `${ip}:${tenantId}` : ip;
+  const windowKey = `mw:${scopeKey}:${Math.floor(now / RATE_LIMIT_WINDOW)}`;
 
   const current = await bindings.KV_RATE_LIMIT.get(windowKey, "json");
   const count = typeof current === "number" ? current : 0;
@@ -402,9 +404,14 @@ function evaluateSubscription(sub: {
 }
 
 function setSecureHeaders(response: NextResponse): void {
+  const scriptSrc = IS_DEV
+    ? "'self' 'unsafe-inline' 'unsafe-eval'"
+    : "'self' 'unsafe-inline'";
+  const styleSrc = "'self' 'unsafe-inline'";
+
   response.headers.set(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:;",
+    `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:;`,
   );
   response.headers.set(
     "Strict-Transport-Security",
@@ -488,21 +495,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   try {
     const bindings = await getBindings();
 
-    // ── Step 3: Rate Limiting ──
-    const ip = getIpAddress(request);
-
-    const rateLimit = await checkRateLimit(ip, bindings);
-    response.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX));
-    response.headers.set("X-RateLimit-Remaining", String(rateLimit.remaining));
-    response.headers.set("X-RateLimit-Reset", String(rateLimit.resetAt));
-    if (!rateLimit.allowed) {
-      return NextResponse.json(
-        { error: "Too many requests" },
-        { status: 429, headers: response.headers },
-      );
-    }
-
-    // ── Step 4: CSRF check on mutations ──
+    // ── Step 3: CSRF check on mutations ──
     if (isMutationMethod(request.method) && !checkCsrf(request)) {
       return NextResponse.json(
         { error: "CSRF token missing or invalid" },
@@ -510,7 +503,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // ── Step 5: Authentication ──
+    // ── Step 4: Authentication ──
     const token = extractToken(request);
 
     if (!token) {
@@ -532,7 +525,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // ── Step 6: Tenant Resolution ──
+    // ── Step 5: Tenant Resolution ──
     const tenantResult = await resolveTenantId(request, session, bindings);
     if ("error" in tenantResult) {
       return NextResponse.json(
@@ -542,10 +535,24 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     }
     const { tenantId, tenantStatus } = tenantResult;
 
-    // ── Step 7: Tenant Active Check ──
+    // ── Step 6: Tenant Active Check ──
     const tenantCheck = checkTenantStatus(tenantStatus);
     if (tenantCheck.blocked) {
       return tenantCheck.response!;
+    }
+
+    // ── Step 7: Tenant-Scoped Rate Limiting ──
+    const ip = getIpAddress(request);
+
+    const rateLimit = await checkRateLimit(ip, tenantId, bindings);
+    response.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX));
+    response.headers.set("X-RateLimit-Remaining", String(rateLimit.remaining));
+    response.headers.set("X-RateLimit-Reset", String(rateLimit.resetAt));
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests" },
+        { status: 429, headers: response.headers },
+      );
     }
 
     // ── Step 8: Subscription / Trial Check ──
@@ -609,16 +616,18 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     response = NextResponse.next({ request: { headers: requestHeaders } });
     setContextHeaders(response, requestHeaders, session, tenantId);
 
-    // ── Step 12: Audit Log (fire-and-forget) ──
-    auditLog("api_request", {
-      tenantId,
-      userId: session.userId,
-      path: pathname,
-      method: request.method,
-      ipAddress: ip,
-      userAgent: request.headers.get("user-agent") ?? undefined,
-      statusCode: 200,
-    });
+    // ── Step 12: Audit Log (fire-and-forget, mutations only) ──
+    if (isMutationMethod(request.method)) {
+      auditLog("api_request", {
+        tenantId,
+        userId: session.userId,
+        path: pathname,
+        method: request.method,
+        ipAddress: ip,
+        userAgent: request.headers.get("user-agent") ?? undefined,
+        statusCode: 200,
+      });
+    }
   } catch (err) {
     console.error("Middleware error:", err);
     return NextResponse.json(

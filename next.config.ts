@@ -7,7 +7,14 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  serverExternalPackages: ["@react-pdf/renderer"],
+  serverExternalPackages: [
+    "@react-pdf/renderer",
+    "@supabase/supabase-js",
+    "drizzle-orm",
+    "pg",
+    "pino",
+    "exceljs",
+  ],
 };
 
 export default nextConfig;

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { ReportService } from "@/application/services/ReportService";
-import type { CreateReportRequest } from "@/presentation/dtos/report";
+import { createReportSchema } from "@/lib/validation";
 
 export async function GET(request: NextRequest) {
   try {
@@ -44,22 +44,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No tenant/user context" }, { status: 401 });
     }
 
-    const body = (await request.json()) as CreateReportRequest;
-    if (!body.name?.trim() || !body.reportType?.trim()) {
+    const body = await request.json();
+    const parsed = createReportSchema.safeParse(body);
+
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "name and reportType are required" },
+        { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
         { status: 400 },
       );
     }
+
+    const { name, description, reportType, config } = parsed.data;
 
     const service = new ReportService();
     const report = await service.create({
       tenantId,
       userId,
-      name: body.name.trim(),
-      description: body.description,
-      reportType: body.reportType.trim(),
-      config: body.config,
+      name,
+      description,
+      reportType,
+      config,
     });
 
     return NextResponse.json(

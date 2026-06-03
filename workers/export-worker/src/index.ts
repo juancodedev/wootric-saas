@@ -66,6 +66,8 @@ async function fetchReportData(
   return fetchTableData(url, key, "dashboard_widgets", tenantId, filters);
 }
 
+const EXPORT_PAGE_SIZE = 1000;
+
 async function fetchTableData(
   url: string,
   key: string,
@@ -76,48 +78,77 @@ async function fetchTableData(
   rows: Record<string, unknown>[];
   columns: { key: string; header: string; width?: number }[];
   title: string;
+  truncated?: boolean;
 }> {
   const safeTable = sanitizeTableName(table);
-  let queryUrl = `${url}/rest/v1/${safeTable}?select=*&tenant_id=eq.${tenantId}&limit=1000`;
 
+  // Build base query parts
+  const filterParams: string[] = [`tenant_id=eq.${tenantId}`];
   if (filters) {
     for (const [col, val] of Object.entries(filters)) {
       if (val !== undefined && val !== null && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col)) {
-        queryUrl += `&${col}=eq.${encodeURIComponent(String(val))}`;
+        filterParams.push(`${col}=eq.${encodeURIComponent(String(val))}`);
       }
     }
   }
 
-  const res = await fetch(queryUrl, {
-    headers: {
-      Authorization: `Bearer ${key}`,
-      apikey: key,
-    },
-  });
+  const allRows: Record<string, unknown>[] = [];
+  let from = 0;
+  let truncated = false;
 
-  if (!res.ok) {
-    throw new Error(`Failed to fetch data from ${table}: ${res.status}`);
+  // Paginate to fetch all rows
+  while (true) {
+    const to = from + EXPORT_PAGE_SIZE - 1;
+    const queryUrl = `${url}/rest/v1/${safeTable}?select=*&${filterParams.join("&")}&order=created_at.asc&offset=${from}&limit=${EXPORT_PAGE_SIZE}`;
+
+    const res = await fetch(queryUrl, {
+      headers: {
+        Authorization: `Bearer ${key}`,
+        apikey: key,
+        Range: `${from}-${to}`,
+        Prefer: "count=exact",
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch data from ${table}: ${res.status}`);
+    }
+
+    const rows: Record<string, unknown>[] = await res.json();
+    allRows.push(...rows);
+
+    if (rows.length < EXPORT_PAGE_SIZE) {
+      break; // Last page
+    }
+
+    from += EXPORT_PAGE_SIZE;
+
+    // Safety: cap at 100k rows to prevent runaway fetches
+    if (allRows.length >= 100_000) {
+      truncated = true;
+      log("warn", `Export truncated at 100,000 rows for table ${table}`);
+      break;
+    }
   }
 
-  const rows: Record<string, unknown>[] = await res.json();
-
-  if (rows.length === 0) {
+  if (allRows.length === 0) {
     return { rows: [], columns: [], title: `Export: ${table}` };
   }
 
-  const sampleKeys = Object.keys(rows[0]!).filter(
+  const sampleKeys = Object.keys(allRows[0]!).filter(
     (k) => !k.startsWith("_") && !k.endsWith("_at"),
   );
 
-  const columns = sampleKeys.map((key) => ({
-    key,
-    header: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+  const columns = sampleKeys.map((colKey) => ({
+    key: colKey,
+    header: colKey.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
   }));
 
   return {
-    rows,
+    rows: allRows,
     columns,
     title: `Export: ${table}`,
+    truncated,
   };
 }
 

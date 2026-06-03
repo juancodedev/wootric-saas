@@ -20,6 +20,36 @@ export function isAuthenticated(): boolean {
   return !!getToken();
 }
 
+/**
+ * Decode JWT payload (no signature verification — for client-side
+ * role hinting only; real auth is server-side).
+ */
+export function getJwtPayload(): Record<string, unknown> | null {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    return JSON.parse(atob(parts[1]!));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if the current user has a specific role claim.
+ * Used to conditionally fetch admin-only resources.
+ */
+export function hasRole(roleSlug: string): boolean {
+  const payload = getJwtPayload();
+  if (!payload) return false;
+  const roles = payload.role_ids ?? payload.roles;
+  if (Array.isArray(roles)) {
+    return roles.includes(roleSlug);
+  }
+  return false;
+}
+
 export async function apiFetch<T = unknown>(
   url: string,
   options?: RequestInit,

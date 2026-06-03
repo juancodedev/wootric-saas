@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { DashboardService } from "@/application/services/DashboardService";
-import type { CreateDashboardRequest } from "@/presentation/dtos/dashboard";
 import { DashboardVisibility } from "@/domain/enums";
 import { getAuthContextFromToken } from "@/lib/auth/context";
+import { createDashboardSchema } from "@/lib/validation";
 
 function getTenantId(request: NextRequest): string | null {
   return request.headers.get("x-tenant-id") ?? getAuthContextFromToken(request).tenantId;
@@ -57,19 +57,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No tenant/user context" }, { status: 401 });
     }
 
-    const body = (await request.json()) as CreateDashboardRequest;
-    if (!body.name?.trim()) {
-      return NextResponse.json({ error: "name is required" }, { status: 400 });
+    const body = await request.json();
+    const parsed = createDashboardSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
     }
+
+    const { name, description, visibility, layout } = parsed.data;
 
     const service = new DashboardService();
     const dashboard = await service.create({
       tenantId,
       userId,
-      name: body.name.trim(),
-      description: body.description,
-      visibility: body.visibility as DashboardVisibility,
-      layout: body.layout,
+      name,
+      description,
+      visibility: (visibility as DashboardVisibility) ?? DashboardVisibility.PRIVATE,
+      layout,
     });
 
     return NextResponse.json(

@@ -116,13 +116,12 @@ export class WootricApiClient {
     segment?: string;
     onPage?: (responses: WootricResponse[], page: number) => Promise<void>;
   }): Promise<{
-    responses: WootricResponse[];
     totalCount: number;
     pagesFetched: number;
   }> {
     let page = 1;
     let totalPages = 1;
-    const allResponses: WootricResponse[] = [];
+    let totalCount = 0;
     const perPage = 100;
 
     while (page <= totalPages) {
@@ -134,7 +133,7 @@ export class WootricApiClient {
         segment: params?.segment,
       });
 
-      allResponses.push(...result.data);
+      totalCount += result.data.length;
       totalPages = result.meta?.total_pages ?? 1;
 
       if (params?.onPage) {
@@ -145,8 +144,7 @@ export class WootricApiClient {
     }
 
     return {
-      responses: allResponses,
-      totalCount: allResponses.length,
+      totalCount,
       pagesFetched: page - 1,
     };
   }
